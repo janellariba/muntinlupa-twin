@@ -4,13 +4,14 @@
   "version": "2.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "node scripts/copy-ort.mjs && vite",
+    "build": "node scripts/copy-ort.mjs && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "@react-three/drei": "9.114.0",
     "@react-three/fiber": "8.17.10",
+    "onnxruntime-web": "^1.20.1",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "three": "0.160.0"

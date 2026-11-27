@@ -6,7 +6,7 @@ import { H2 } from "./Panels";
 import { MAX_INDEX } from "../lib/cameraConfig";
 import { listCameras } from "../lib/webcam";
 
-const EMPTY = { name: "", lat: "", lon: "", index: "" };
+const EMPTY = { name: "", lat: "", lon: "", index: "", heading: "", fov: "" };
 const field = "mt-1 w-full rounded-md border border-line bg-[#0f191d] px-2.5 py-1.5 text-sm text-ink placeholder:text-muted/60 focus:border-accent focus:outline-none";
 
 export default function CameraConfig({ cameras, onSave, onRemove, onShow, validate, openIds = [], onOpenAll, onCloseAll }) {
@@ -28,7 +28,7 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
 
   const edit = (c) => {
     setEditingId(c.id);
-    setForm({ name: c.name, lat: String(c.lat), lon: String(c.lon), index: String(c.index) });
+    setForm({ name: c.name, lat: String(c.lat), lon: String(c.lon), index: String(c.index), heading: c.heading ?? "", fov: c.fov ?? "" });
     setError("");
   };
 
@@ -71,6 +71,18 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
           <button type="button" className="chip" onClick={detect}>Detect cameras</button>
         </div>
 
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block text-xs text-muted" htmlFor="cam-heading">
+            Heading (°) <span className="opacity-70">measured</span>
+            <input id="cam-heading" className={field} value={form.heading} onChange={set("heading")} inputMode="decimal" placeholder="0 = north" />
+          </label>
+          <label className="block text-xs text-muted" htmlFor="cam-fov">
+            Field of view (°) <span className="opacity-70">measured</span>
+            <input id="cam-fov" className={field} value={form.fov} onChange={set("fov")} inputMode="decimal" placeholder="horizontal" />
+          </label>
+        </div>
+        <p className="-mt-1 text-[0.68rem] leading-snug text-muted">Leave empty until measured. Without both, the camera still detects but gives no bearing.</p>
+
         {detectMsg && <p className="text-xs text-muted">{detectMsg}</p>}
         {detected?.length > 0 && (
           <ul className="grid gap-1 rounded-md border border-line p-2 text-xs" aria-label="Cameras on this device">
@@ -111,6 +123,11 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
                   <span className="shrink-0 font-mono text-muted">index {c.index}</span>
                 </div>
                 <div className="mt-0.5 font-mono text-muted tabular-nums">{c.lat.toFixed(6)}, {c.lon.toFixed(6)}{c.barangay ? ` · ${c.barangay}` : ""}</div>
+                <div className="mt-0.5 font-mono tabular-nums">
+                  {c.heading != null && c.fov != null
+                    ? <span className="text-muted">heading {c.heading}° · FOV {c.fov}°</span>
+                    : <span className="rounded border border-line px-1 text-[0.65rem] text-muted">NOT MEASURED: no bearing</span>}
+                </div>
                 <div className="mt-1.5 flex gap-1.5">
                   <button type="button" className="chip flex-1 py-1" aria-pressed={openIds.includes(c.id)} onClick={() => onShow(c)}>Show</button>
                   <button type="button" className="chip flex-1 py-1" onClick={() => edit(c)}>Edit</button>

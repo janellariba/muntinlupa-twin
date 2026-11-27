@@ -9,6 +9,9 @@ import TwinScene, { WIND_SPEEDUP } from "./components/TwinScene";
 import WeatherCard, { useWeather, WeatherSummary } from "./components/WeatherCard";
 import { TitleBlock, LayersPanel, ColorPanel, PlacesPanel, BuildingInfo } from "./components/Panels";
 import CameraConfig from "./components/CameraConfig";
+import DetectionPanel from "./components/DetectionPanel";
+import { loadModel, restoreModel, forgetModel } from "./lib/detector";
+import { liveTriangulation, pickBox } from "./lib/liveTriangulation";
 import { buildTwin, toThree, findBarangay } from "./lib/twinGeometry";
 import { loadCameras, saveCameras, placeCamera, validateCamera } from "./lib/cameraConfig";
 
@@ -38,7 +41,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [twin, setTwin] = useState(null);
 
-  const [visible, setVisible] = useState({ terrain: true, buildings: true, roads: true, sidewalks: true, barangays: true, cameras: true, wind: false });
+  const [visible, setVisible] = useState({ terrain: true, buildings: true, roads: true, sidewalks: true, barangays: true, cameras: true, triangulation: true, wind: false });
   const [showSide, setShowSide] = useState(() => remembered("twin.sidePanel", true));
   const [showWeather, setShowWeather] = useState(() => remembered("twin.weatherCard", true));
   const toggleSide = (on) => { setShowSide(on); remember("twin.sidePanel", on); };
@@ -53,6 +56,10 @@ export default function App() {
   const [cursor, setCursor] = useState(null);
   const [camConfigs, setCamConfigs] = useState(loadCameras); // saved: { id, name, lat, lon, index }
   const [openCamIds, setOpenCamIds] = useState([]);           // cameras whose stream popups are open (several at once)
+  const [model, setModel] = useState({ status: "none" });     // fire/smoke model: none | loading | ready | error
+  const [detectOn, setDetectOn] = useState(true);
+  const [hits, setHits] = useState({});                        // camId -> last box worth a bearing { box, W, H, t }
+  const [now, setNow] = useState(() => Date.now());
   const [tab, setTab] = useState("weather");
   const [sheetOpen, setSheetOpen] = useState(false);
 
@@ -159,6 +166,38 @@ export default function App() {
   };
   const openAllCams = () => { setVisible((v) => ({ ...v, cameras: true })); setOpenCamIds(camConfigs.map((c) => c.id)); setSheetOpen(false); };
   const closeAllCams = () => setOpenCamIds([]);
+
+  // ---- Fire/smoke detection (model in this browser) and live triangulation ----
+  useEffect(() => {
+    let alive = true;
+    setModel({ status: "loading" });
+    restoreModel().then((info) => alive && setModel(info ? { status: "ready", info } : { status: "none" }));
+    return () => { alive = false; };
+  }, []);
+  const onLoadModelFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setModel({ status: "loading" });
+    try { setModel({ status: "ready", info: await loadModel(await file.arrayBuffer(), file.name) }); }
+    catch (err) { setModel({ status: "error", error: err.message }); }
+  };
+  const onForgetModel = async () => { await forgetModel(); setModel({ status: "none" }); setHits({}); };
+  // Each run from a popup: keep the box that would give this camera's bearing (fire, else smoke).
+  const onDetResult = useCallback((id, r) => {
+    setHits((h) => {
+      if (!r) { if (!(id in h)) return h; const n = { ...h }; delete n[id]; return n; } // stream closed
+      const box = pickBox(r.dets);
+      return box ? { ...h, [id]: { box, W: r.W, H: r.H, t: Date.now() } } : h;     // keep the last hit for the window
+    });
+  }, []);
+  const detecting = model.status === "ready" && detectOn;
+  useEffect(() => { if (!detecting) setHits({}); }, [detecting]);
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  const live = useMemo(
+    () => (twin && detecting ? liveTriangulation(cams, hits, now, twin.meta.origin_utm) : null),
+    [twin, detecting, cams, hits, now]
+  );
   useEffect(() => { if (!visible.cameras) setOpenCamIds([]); }, [visible.cameras]);
 
   const toggle = (k) => setVisible((v) => ({ ...v, [k]: !v[k] }));
@@ -168,6 +207,10 @@ export default function App() {
     layers: <LayersPanel visible={visible} onToggle={toggle} windNote={windNote} />,
     color: <ColorPanel mode={colorMode} onMode={setColorMode} heightSources={heightSources} sourceCounts={sourceCounts} />,
     places: twin && <PlacesPanel labels={twin.labels} current={place.label} onPlace={goPlace} onOverview={overview} autoOrbit={autoOrbit} onOrbit={() => setAutoOrbit((o) => !o)} />,
+    detection: (
+      <DetectionPanel model={model} onLoadFile={onLoadModelFile} onForget={onForgetModel} detectOn={detectOn}
+        onToggleDetect={() => setDetectOn((d) => !d)} live={live} openCount={openCamIds.length} />
+    ),
     cameras: twin && (
       <CameraConfig cameras={cams} onSave={saveCam} onRemove={removeCam} onShow={showCam}
         openIds={openCamIds} onOpenAll={openAllCams} onCloseAll={closeAllCams}
@@ -194,6 +237,9 @@ export default function App() {
         openCamIds={openCamIds}
         onOpenCam={openCam}
         onCloseCam={closeCam}
+        detecting={detecting}
+        onDetResult={onDetResult}
+        live={live}
         wind={wind}
         autoOrbit={autoOrbit}
         onPick={onPick}
@@ -227,6 +273,7 @@ export default function App() {
         <div className="panel p-4">{panels.color}</div>
         <div className="panel p-4">{panels.places}</div>
         <div className="panel p-4">{panels.cameras}</div>
+        <div className="panel p-4">{panels.detection}</div>
       </aside>
       ) : (
         <button className="panel absolute left-4 top-4 z-20 hidden items-center gap-2 px-3 py-2 text-sm hover:border-accent lg:flex"
@@ -286,7 +333,9 @@ export default function App() {
               ))}
             </nav>
             <div id="sheet-body" className="scroll-thin min-h-0 flex-1 overflow-y-auto p-4" role="tabpanel">
-              {tab === "layers" ? <div className="grid gap-5">{panels.layers}{panels.color}</div> : panels[tab]}
+              {tab === "layers" ? <div className="grid gap-5">{panels.layers}{panels.color}</div>
+                : tab === "cameras" ? <div className="grid gap-5">{panels.cameras}{panels.detection}</div>
+                : panels[tab]}
             </div>
           </>
         )}

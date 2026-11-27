@@ -1,5 +1,7 @@
 // cameraConfig.js
-// Cameras the user adds in the Camera config card: name, lat/lon (WGS84), webcam index.
+// Cameras the user adds in the Camera config card: name, lat/lon (WGS84), webcam index, and the
+// optional MEASURED heading (true bearing of the image centre, 0 = north, clockwise) and horizontal
+// field of view. Empty heading/FOV = NOT MEASURED: the camera still detects but gives no bearing.
 // Saved in this browser's localStorage (only lat/lon/index/name are stored; map positions are
 // recomputed on load, so they stay right if the twin's DEM or origin changes).
 import { latLonToUtm51 } from "./cameras";
@@ -44,8 +46,12 @@ export function validateCamera(form, twin, existing, editingId) {
   if (String(form.lon).trim() === "" || !Number.isFinite(lon) || lon < -180 || lon > 180) return { error: "Longitude must be a number between -180 and 180 (for example 121.0415)." };
   if (String(form.index).trim() === "" || !Number.isInteger(index) || index < 0 || index > MAX_INDEX) return { error: `Camera index must be a whole number from 0 to ${MAX_INDEX} (0 is usually the laptop's own camera).` };
   const name = String(form.name || "").trim().slice(0, 40) || `Camera ${index}`;
+  const opt = (v) => (String(v ?? "").trim() === "" ? null : Number(String(v).trim()));
+  const heading = opt(form.heading), fov = opt(form.fov);
+  if (heading !== null && (!Number.isFinite(heading) || heading < 0 || heading >= 360)) return { error: "Heading must be a compass bearing from 0 to less than 360 (0 = north, 90 = east), or empty if not measured." };
+  if (fov !== null && (!Number.isFinite(fov) || fov <= 0 || fov > 180)) return { error: "Field of view must be more than 0 and at most 180 degrees, or empty if not measured." };
   const placed = placeCamera({ lat, lon }, twin);
   if (!placed.barangay) return { error: "That point is outside Muntinlupa. Muntinlupa is around 14.36 to 14.45 N, 121.01 to 121.06 E." };
   if (existing.some((c) => c.id !== editingId && c.name.toLowerCase() === name.toLowerCase())) return { error: `There is already a camera named "${name}".` };
-  return { cam: { id: editingId || `cam-${Date.now().toString(36)}`, name, lat, lon, index } };
+  return { cam: { id: editingId || `cam-${Date.now().toString(36)}`, name, lat, lon, index, heading, fov } };
 }

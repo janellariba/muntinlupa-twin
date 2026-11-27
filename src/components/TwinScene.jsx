@@ -7,6 +7,7 @@ import { MapControls, Html, Line } from "@react-three/drei";
 import * as THREE from "three";
 import { buildingColors, toThree } from "../lib/twinGeometry";
 import CameraPopup from "./CameraPopup";
+import { TRIANGULATION } from "../lib/detectionConfig";
 
 const BG = "#0d1417";
 const CAMERA_MARKER_H = 30; // display only: mast height so the mark shows above rooftops
@@ -176,7 +177,7 @@ function BarangayOutline({ rec, color, width, opacity }) {
 
 /* One configured camera: an amber mast with a clickable camera button on top.
    Clicking it opens a small popup above the mark with that camera's live stream. */
-function CameraMark({ cam, ground, open, onOpen, onClose }) {
+function CameraMark({ cam, ground, open, onOpen, onClose, detecting, onDetResult }) {
   const g = ground(cam.x, cam.y);
   const top = toThree(cam.x, cam.y, g + CAMERA_MARKER_H);
   return (
@@ -206,14 +207,66 @@ function CameraMark({ cam, ground, open, onOpen, onClose }) {
       </Html>
       {open && (
         <Html position={top} zIndexRange={[19, 16]} style={{ transform: "translate(-50%, calc(-100% - 1.4rem))" }}>
-          <CameraPopup cam={cam} onClose={() => onClose(cam.id)} />
+          <CameraPopup cam={cam} onClose={() => onClose(cam.id)} detecting={detecting} onResult={onDetResult} />
         </Html>
       )}
     </group>
   );
 }
 
-const Scene = memo(function Scene({ twin, buildings, visible, colorMode, flyTarget, selected, selectedBrgy, hoverBrgy, cams, openCamIds, onOpenCam, onCloseCam, wind, autoOrbit, onPick, onHover }) {
+/* Live triangulation on the map: a bearing line from each camera (dashed when from smoke), and when
+   the solve succeeds, a red fire mark with its 95% error ellipse. Line length is display only. */
+function TriangulationLayer({ live, ground }) {
+  const { rays = [], result, estimate } = live;
+  const drape = (pts, lift) => pts.map(([x, y]) => toThree(x, y, ground(x, y) + lift));
+  const lines = rays.map((r) => {
+    const L = result?.status === "ok"
+      ? Math.min((result.ranges[r.id] ?? TRIANGULATION.maxRangeM) * TRIANGULATION.rayDisplayExtend, TRIANGULATION.maxRangeM)
+      : TRIANGULATION.maxRangeM;
+    const steps = Math.max(2, Math.ceil(L / 150)), pts = [];
+    for (let k = 0; k <= steps; k++) pts.push([r.origin[0] + (r.dir[0] * L * k) / steps, r.origin[1] + (r.dir[1] * L * k) / steps]);
+    return { id: r.id, smoke: r.fromSmoke, pts: drape(pts, 30) };
+  });
+  let ring = null;
+  if (estimate) { // 95% ellipse, orientation clockwise from grid north
+    const { major, minor, orientDeg } = estimate.ellipse, t = (orientDeg * Math.PI) / 180, pts = [];
+    for (let k = 0; k <= 72; k++) {
+      const a = (k / 72) * Math.PI * 2, u = Math.cos(a) * major, v = Math.sin(a) * minor; // u along the major axis
+      pts.push([estimate.x + u * Math.sin(t) + v * Math.cos(t), estimate.y + u * Math.cos(t) - v * Math.sin(t)]);
+    }
+    ring = drape(pts, 12);
+  }
+  return (
+    <group>
+      {lines.map((l) => (
+        <Line key={l.id} points={l.pts} color="#ff6a2b" lineWidth={2.5} dashed={l.smoke} dashSize={60} gapSize={40} transparent opacity={0.9} depthTest={false} renderOrder={21} />
+      ))}
+      {estimate && (
+        <>
+          <Line points={ring} color="#ff3b30" lineWidth={3} depthTest={false} renderOrder={22} />
+          <mesh position={toThree(estimate.x, estimate.y, ground(estimate.x, estimate.y) + 30)}>
+            <cylinderGeometry args={[5, 5, 60, 12]} />
+            <meshBasicMaterial color="#ff3b30" />
+          </mesh>
+          <Html position={toThree(estimate.x, estimate.y, ground(estimate.x, estimate.y) + 60)} center zIndexRange={[15, 11]} style={{ pointerEvents: "none" }}>
+            <div className="flex flex-col items-center">
+              <span className="grid size-9 animate-pulse place-items-center rounded-full border-2 border-white bg-red-600 shadow-lg">
+                <svg viewBox="0 0 24 24" className="size-5 text-white" fill="currentColor" aria-hidden="true">
+                  <path d="M12 2c1 3.5 5 6 5 11a5 5 0 0 1-10 0c0-2.4 1.2-4.1 2.6-5.4.2 1.7 1 2.8 2.2 3.4C11.2 8.6 11 5.2 12 2Z" />
+                </svg>
+              </span>
+              <span className="mt-0.5 whitespace-nowrap rounded bg-black/70 px-1.5 py-0.5 font-mono text-[0.65rem] text-white">
+                FIRE ESTIMATE{estimate.anySmoke ? " (smoke)" : ""} ±{Math.round(estimate.ellipse.major)} m
+              </span>
+            </div>
+          </Html>
+        </>
+      )}
+    </group>
+  );
+}
+
+const Scene = memo(function Scene({ twin, buildings, visible, colorMode, flyTarget, selected, selectedBrgy, hoverBrgy, cams, openCamIds, onOpenCam, onCloseCam, detecting, onDetResult, live, wind, autoOrbit, onPick, onHover }) {
   const buildingsRef = useRef();
   const terrainRef = useRef();
 
@@ -288,8 +341,10 @@ const Scene = memo(function Scene({ twin, buildings, visible, colorMode, flyTarg
       {selectedBrgy && <BarangayOutline rec={twin.barangayIndex.find((b) => b.name === selectedBrgy)} color="#f2a33a" width={4.5} opacity={1} />}
 
       {visible.cameras && cams.map((c) => (
-        <CameraMark key={c.id} cam={c} ground={twin.ground} open={openCamIds.includes(c.id)} onOpen={onOpenCam} onClose={onCloseCam} />
+        <CameraMark key={c.id} cam={c} ground={twin.ground} open={openCamIds.includes(c.id)} onOpen={onOpenCam} onClose={onCloseCam}
+          detecting={detecting} onDetResult={onDetResult} />
       ))}
+      {visible.triangulation && live && <TriangulationLayer live={live} ground={twin.ground} />}
       {visible.wind && wind && <WindParticles wind={wind} twin={twin} />}
 
       <MapControls makeDefault enableDamping minDistance={60} maxDistance={32000} maxPolarAngle={Math.PI * 0.47} autoRotate={autoOrbit} autoRotateSpeed={0.6} />

@@ -82,6 +82,36 @@ Notes:
   says the camera is busy.
 - Cameras are saved in this browser only (localStorage). Another browser or device starts empty.
 
+## Fire/smoke detection and triangulation
+
+Runs entirely in the browser on the open camera streams (no server).
+
+1. Export your model once (Anaconda Prompt, where `best.pt` is):
+   `yolo export model=best.pt format=onnx imgsz=640 opset=12` -> `best.onnx`.
+2. **Detection & triangulation** card -> **Load model (.onnx)**. The model stays on this device
+   (IndexedDB) and is reloaded automatically next time. It is never uploaded or committed.
+3. In **Camera config**, enter each camera's measured **heading** (true bearing of the image centre,
+   0 = north, clockwise) and horizontal **field of view**. Empty = NOT MEASURED: the camera detects
+   but gives no bearing.
+4. Open the streams. Boxes are drawn on each stream (red fire, grey smoke). With 2 or more bearings the
+   map shows orange bearing lines (dashed when from smoke), a red **FIRE ESTIMATE** mark and its 95%
+   error ellipse. The **Triangulation** layer hides or shows them.
+
+How it works (`src/lib/`):
+
+| File | Role |
+|---|---|
+| `detector.js` | onnxruntime-web (WebGPU, else CPU): letterbox, YOLOv8/11 box decode, NMS |
+| `liveTriangulation.js` | Per camera: most confident fire box, smoke only if no fire; bearing; combine window |
+| `triangulation.js` | Port of dt-step4-ui `triangulation.py` + `geo.ray_in_crs` (true vs grid north) |
+| `detectionConfig.js` | **All fixed values**, marked TEMPORARY, with their sources |
+
+Verified: the JS solver matches `triangulation.py` on 300 random cases (same accept/reject, estimates
+within 1e-9 m); bearing rays match pyproj within 3 cm at 8 km; end-to-end browser test with a synthetic
+test model reproduced the pyproj intersection to 6 decimals.
+
+Limits: assumes one fire at a time; pinhole bearing model without lens calibration; values are temporary.
+
 ## Backup
 
 The version before Camera config is kept on the branch **`backup/before-camera-config`**
