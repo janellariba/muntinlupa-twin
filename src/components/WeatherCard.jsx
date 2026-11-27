@@ -58,7 +58,12 @@ export default function WeatherCard({ place, w, onHide }) {
         <h2 className="font-display text-lg font-semibold uppercase leading-tight tracking-wide">{place?.name}</h2>
         {onHide && <button className="chip shrink-0 px-2 py-1 text-xs" onClick={onHide} aria-label="Hide weather card">Hide ›</button>}
       </div>
-      {w.lat != null && <p className="font-mono text-[0.7rem] text-muted tabular-nums">{w.lat.toFixed(4)}°N {w.lon.toFixed(4)}°E</p>}
+      {w.lat != null && (
+        <p className="font-mono text-[0.7rem] text-muted tabular-nums">
+          {w.lat.toFixed(4)}°N {w.lon.toFixed(4)}°E
+          {place?.hover && <span className="ml-2 rounded-full border border-line px-1.5 py-px font-sans text-[0.65rem]">under pointer · click to pin</span>}
+        </p>
+      )}
 
       {w.status === "loading" && <p className="mt-3 text-sm text-muted">Loading current weather…</p>}
       {w.status === "error" && (

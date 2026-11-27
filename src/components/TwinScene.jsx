@@ -3,7 +3,7 @@
 // AI-SUNOG camera markers, camera fly-to animation, and click/tap picking.
 import { memo, useEffect, useMemo, useRef } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { MapControls, Html } from "@react-three/drei";
+import { MapControls, Html, Line } from "@react-three/drei";
 import * as THREE from "three";
 import { buildingColors, toThree } from "../lib/twinGeometry";
 
@@ -59,7 +59,9 @@ function Picker({ buildingsRef, terrainRef, onPick, onHover }) {
       aim(e);
       const mesh = buildingsRef.current;
       const hit = mesh && mesh.visible ? ray.intersectObject(mesh, false)[0] : null;
-      onPick(hit ? hit.faceIndex : null);
+      // Where on the map was clicked: the building hit, otherwise the terrain under the pointer.
+      const ground = hit || (terrainRef.current ? ray.intersectObject(terrainRef.current, false)[0] : null);
+      onPick({ tri: hit ? hit.faceIndex : null, point: ground ? { x: ground.point.x, y: -ground.point.z } : null });
     };
     const onMove = (e) => {
       if (e.pointerType !== "mouse" || pending) return;
@@ -67,7 +69,7 @@ function Picker({ buildingsRef, terrainRef, onPick, onHover }) {
       requestAnimationFrame(() => {
         pending = false;
         const mesh = terrainRef.current;
-        if (!mesh || !mesh.visible) return;
+        if (!mesh) return;
         aim(e);
         const hit = ray.intersectObject(mesh, false)[0];
         onHover(hit ? { x: hit.point.x, y: -hit.point.z } : null);
@@ -152,6 +154,13 @@ function WindParticles({ wind, twin }) {
   );
 }
 
+/* Barangay outline highlight. Drawn on top of everything so hills and buildings never hide it. */
+function BarangayOutline({ rec, color, width, opacity }) {
+  return rec.outlines.map((pts, i) => (
+    <Line key={i} points={pts} color={color} lineWidth={width} transparent opacity={opacity} depthTest={false} renderOrder={20} />
+  ));
+}
+
 /* One camera: rooftop pin, optional view cone, and a name label. */
 function CameraMarker({ cam, ground }) {
   const g = ground(cam.x, cam.y);
@@ -187,7 +196,7 @@ function CameraMarker({ cam, ground }) {
   );
 }
 
-const Scene = memo(function Scene({ twin, buildings, visible, colorMode, flyTarget, selected, cams, wind, autoOrbit, onPick, onHover }) {
+const Scene = memo(function Scene({ twin, buildings, visible, colorMode, flyTarget, selected, selectedBrgy, hoverBrgy, cams, wind, autoOrbit, onPick, onHover }) {
   const buildingsRef = useRef();
   const terrainRef = useRef();
 
@@ -255,6 +264,11 @@ const Scene = memo(function Scene({ twin, buildings, visible, colorMode, flyTarg
           ))}
         </>
       )}
+
+      {hoverBrgy && hoverBrgy !== selectedBrgy && (
+        <BarangayOutline rec={twin.barangayIndex.find((b) => b.name === hoverBrgy)} color="#ffffff" width={2.5} opacity={0.75} />
+      )}
+      {selectedBrgy && <BarangayOutline rec={twin.barangayIndex.find((b) => b.name === selectedBrgy)} color="#f2a33a" width={4.5} opacity={1} />}
 
       {visible.cameras && cams.map((c) => <CameraMarker key={c.id} cam={c} ground={twin.ground} />)}
       {visible.wind && wind && <WindParticles wind={wind} twin={twin} />}

@@ -231,6 +231,53 @@ export function buildBoundaryGeometry(barangays, ground) {
   return new THREE.BufferGeometry().setFromPoints(pts);
 }
 
+/* ---------------- barangay lookup and outlines ---------------- */
+
+/** Even-odd point-in-ring test on a flat [x0, y0, x1, y1, ...] ring. */
+function inRing(x, y, f) {
+  let inside = false;
+  for (let i = 0, j = f.length - 2; i < f.length; j = i, i += 2) {
+    const xi = f[i], yi = f[i + 1], xj = f[j], yj = f[j + 1];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+/** Barangay records with bounding boxes for fast lookup, and draped outline points for highlighting. */
+function buildBarangayIndex(barangays, ground) {
+  return barangays.map((b) => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const poly of b.polys) {
+      const f = poly[0];
+      for (let k = 0; k < f.length; k += 2) {
+        x0 = Math.min(x0, f[k]); x1 = Math.max(x1, f[k]); y0 = Math.min(y0, f[k + 1]); y1 = Math.max(y1, f[k + 1]);
+      }
+    }
+    // Outer rings as closed point lists, 8 m above the ground, for the highlight line.
+    const outlines = b.polys.map((poly) => {
+      const f = poly[0], pts = [];
+      for (let k = 0; k <= f.length; k += 2) {
+        const x = f[k % f.length], y = f[(k + 1) % f.length];
+        pts.push(toThree(x, y, ground(x, y) + 8));
+      }
+      return pts;
+    });
+    return { name: b.name, polys: b.polys, bbox: [x0, y0, x1, y1], outlines, x: b.label[0], y: b.label[1] };
+  });
+}
+
+/** Which barangay contains local point (x, y)? Returns its record or null (outside the city). */
+export function findBarangay(index, x, y) {
+  for (const b of index) {
+    const [x0, y0, x1, y1] = b.bbox;
+    if (x < x0 || x > x1 || y < y0 || y > y1) continue;
+    for (const poly of b.polys) {
+      if (inRing(x, y, poly[0]) && !poly.slice(1).some((hole) => inRing(x, y, hole))) return b;
+    }
+  }
+  return null;
+}
+
 /* ---------------- everything at once ---------------- */
 
 /** Builds every layer from the four JSON files. Heavy: call once and memoise. */
@@ -245,6 +292,7 @@ export function buildTwin({ terrain, roads, buildings, barangays }) {
     sidewalks: buildDrapedGeometry(roads.sidewalks.map((rings) => [rings, 0]), 0.7, () => SIDEWALK_COLOR, ground),
     buildings: bld,
     boundaries: buildBoundaryGeometry(barangays.barangays, ground),
+    barangayIndex: buildBarangayIndex(barangays.barangays, ground),
     labels: barangays.barangays.map((b) => ({
       name: b.name,
       pop2018: b.pop2018,

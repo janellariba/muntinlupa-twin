@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import TwinScene, { WIND_SPEEDUP } from "./components/TwinScene";
 import WeatherCard, { useWeather, WeatherSummary } from "./components/WeatherCard";
 import { TitleBlock, LayersPanel, ColorPanel, PlacesPanel, CamerasPanel, BuildingInfo } from "./components/Panels";
-import { buildTwin, toThree } from "./lib/twinGeometry";
+import { buildTwin, toThree, findBarangay } from "./lib/twinGeometry";
 import { parseCamerasCsv } from "./lib/cameras";
 
 const FILES = ["terrain", "roads", "buildings", "barangays"];
@@ -45,6 +45,8 @@ export default function App() {
   const [place, setPlace] = useState(CITY);
   const [autoOrbit, setAutoOrbit] = useState(false);
   const [pickedTri, setPickedTri] = useState(null);
+  const [selectedBrgy, setSelectedBrgy] = useState(null); // clicked / flown-to barangay (amber outline)
+  const [hoverBrgy, setHoverBrgy] = useState(null);       // barangay under the mouse (white outline)
   const [cursor, setCursor] = useState(null);
   const [cams, setCams] = useState([]);
   const [camNote, setCamNote] = useState("No camera data loaded. Nothing is placed until real positions are provided.");
@@ -80,15 +82,36 @@ export default function App() {
     setFlyTarget({ look: toThree(tx, ty, twin.ground(tx, ty)), dir: f.dir, dist: f.dist });
   }, [twin, showSide, showWeather]);
 
-  const overview = useCallback(() => { fly(0, 0, "overview"); setPlace(CITY); }, [fly]);
+  const brgyPlace = (b) => ({ name: `Brgy. ${b.name}`, x: b.x, y: b.y, label: b.name });
+  const overview = useCallback(() => { fly(0, 0, "overview"); setPlace(CITY); setSelectedBrgy(null); }, [fly]);
   const goPlace = useCallback((l) => {
     fly(l.x, l.y, "place");
-    setPlace({ name: `Brgy. ${l.name}`, x: l.x, y: l.y, label: l.name });
+    setPlace(brgyPlace(l));
+    setSelectedBrgy(l.name);
     setTab("weather");
   }, [fly]);
+
+  // Click/tap on the map: select the building (if any) and the barangay under the click.
+  const onPick = useCallback(({ tri, point }) => {
+    setPickedTri(tri);
+    const b = twin && point ? findBarangay(twin.barangayIndex, point.x, point.y) : null;
+    setSelectedBrgy(b ? b.name : null);
+    if (b) { setPlace(brgyPlace(b)); setHoverBrgy(null); }
+  }, [twin]);
+
+  // Mouse hover: which barangay is under the pointer. Applied after 250 ms of staying on the same
+  // barangay so the weather card does not flicker (and fire requests) while crossing boundaries.
+  const pointedBrgy = useMemo(() => (twin && cursor ? findBarangay(twin.barangayIndex, cursor.x, cursor.y)?.name ?? null : null), [twin, cursor]);
+  useEffect(() => {
+    if (pointedBrgy === hoverBrgy) return;
+    const id = setTimeout(() => setHoverBrgy(pointedBrgy === selectedBrgy ? null : pointedBrgy), 250);
+    return () => clearTimeout(id);
+  }, [pointedBrgy, hoverBrgy, selectedBrgy]);
+  const hoverRec = hoverBrgy ? twin?.barangayIndex.find((b) => b.name === hoverBrgy) : null;
+  const weatherPlace = hoverRec ? { ...brgyPlace(hoverRec), hover: true } : place;
   useEffect(() => { if (twin) overview(); }, [twin]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const weather = useWeather(place, twin?.meta.origin_utm);
+  const weather = useWeather(weatherPlace, twin?.meta.origin_utm);
 
   // Wind for the animation: the current reading at the selected place.
   const wv = weather.data?.values;
@@ -97,7 +120,7 @@ export default function App() {
     [wv?.wind_speed_10m, wv?.wind_direction_10m]
   );
   const windNote = wind
-    ? `${wind.speedKmh.toFixed(0)} km/h from ${Math.round(wind.fromDeg)}° at ${place.name}. One model reading for the whole city; motion sped up ${WIND_SPEEDUP}× so it is visible.`
+    ? `${wind.speedKmh.toFixed(0)} km/h from ${Math.round(wind.fromDeg)}° at ${weatherPlace.name}. One model reading for the whole city; motion sped up ${WIND_SPEEDUP}× so it is visible.`
     : "Waiting for weather data: the animation starts when the wind reading arrives.";
 
   const selected = twin && pickedTri != null ? twin.buildings.owner[pickedTri] : null;
@@ -132,7 +155,7 @@ export default function App() {
     color: <ColorPanel mode={colorMode} onMode={setColorMode} heightSources={heightSources} sourceCounts={sourceCounts} />,
     places: twin && <PlacesPanel labels={twin.labels} current={place.label} onPlace={goPlace} onOverview={overview} autoOrbit={autoOrbit} onOrbit={() => setAutoOrbit((o) => !o)} />,
     cameras: <CamerasPanel cams={cams} note={camNote} onFile={onCamFile} />,
-    weather: <WeatherCard place={place} w={weather} />,
+    weather: <WeatherCard place={weatherPlace} w={weather} />,
     info: <BuildingInfo info={info} types={twin?.meta.building_types ?? []} heightSources={heightSources} onClose={() => setPickedTri(null)} />,
   };
 
@@ -147,10 +170,12 @@ export default function App() {
         colorMode={colorMode}
         flyTarget={flyTarget}
         selected={selected}
+        selectedBrgy={selectedBrgy}
+        hoverBrgy={hoverBrgy}
         cams={cams}
         wind={wind}
         autoOrbit={autoOrbit}
-        onPick={setPickedTri}
+        onPick={onPick}
         onHover={setCursor}
       />
 
@@ -196,7 +221,7 @@ export default function App() {
           </div>
         )}
         {showWeather ? (
-          <div className="panel w-full p-4"><WeatherCard place={place} w={weather} onHide={() => toggleWeather(false)} /></div>
+          <div className="panel w-full p-4"><WeatherCard place={weatherPlace} w={weather} onHide={() => toggleWeather(false)} /></div>
         ) : (
           <button className="panel flex items-center gap-2 px-3 py-2 text-sm hover:border-accent" onClick={() => toggleWeather(true)} aria-label="Show weather card">
             <span className="font-display text-base font-semibold tabular-nums">{wv?.temperature_2m != null ? `${wv.temperature_2m.toFixed(1)}°C` : "Weather"}</span>
@@ -228,7 +253,7 @@ export default function App() {
         >
           <span className="h-1 w-10 rounded-full bg-line" aria-hidden="true" />
           <span className="flex w-full items-center justify-between gap-3">
-            <WeatherSummary place={place} w={weather} />
+            <WeatherSummary place={weatherPlace} w={weather} />
             <span className="shrink-0 text-xs text-muted">{sheetOpen ? "Hide" : "More"}</span>
           </span>
         </button>
