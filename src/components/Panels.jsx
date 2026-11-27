@@ -30,7 +30,7 @@ export function TitleBlock({ stats, onHide }) {
 
 const LAYER_LABELS = {
   terrain: "Terrain", buildings: "Buildings", roads: "Roads", sidewalks: "Sidewalks",
-  barangays: "Barangay boundaries", cameras: "AI-SUNOG cameras", wind: "Wind animation",
+  barangays: "Barangay boundaries", cameras: "AI-SUNOG cameras", wind: "Wind",
 };
 
 export function LayersPanel({ visible, onToggle, windNote }) {
