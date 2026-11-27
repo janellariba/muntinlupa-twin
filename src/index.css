@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+/* Single dark "survey room" theme. Colors and fonts become Tailwind classes:
+   bg-bg, text-ink, text-muted, border-line, bg-panel, text-accent, font-display, font-mono. */
+@theme {
+  --color-bg: #0d1417;
+  --color-panel: rgb(16 25 29 / 0.92);
+  --color-panel-solid: #10191d;
+  --color-line: #24363c;
+  --color-ink: #e3ece9;
+  --color-muted: #8fa5a2;
+  --color-accent: #f2a33a;
+  --color-accent-ink: #1b1206;
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+/* Big screens: every Tailwind size is in rem, so raising the root font size scales
+   the whole interface (panels, text, buttons) for TVs and projectors. */
+html { font-size: 16px; }
+@media (min-width: 1920px) { html { font-size: 17px; } }
+@media (min-width: 2560px) { html { font-size: 21px; } }
+@media (min-width: 3800px) { html { font-size: 30px; } }
+
+html, body, #root { height: 100%; margin: 0; }
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none; /* stops pull-to-refresh fighting the 3D drag on phones */
+}
+
+@utility panel {
+  background-color: var(--color-panel);
+  border: 1px solid var(--color-line);
+  border-radius: 0.75rem;
+  backdrop-filter: blur(6px);
+}
+
+/* Shared button look: pressed state uses the accent. */
+@utility chip {
+  border: 1px solid var(--color-line);
+  background-color: #18262b;
+  border-radius: 0.4rem;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--color-ink);
+  cursor: pointer;
+  &:hover { border-color: var(--color-accent); }
+  &[aria-pressed="true"] { background-color: var(--color-accent); color: var(--color-accent-ink); border-color: var(--color-accent); }
+  &:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+}
+
+.scroll-thin { scrollbar-width: thin; scrollbar-color: var(--color-line) transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
