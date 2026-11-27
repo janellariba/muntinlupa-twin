@@ -1,8 +1,5 @@
 // cameras.js
-// Reads a cameras.csv the user loads (nothing is ever placed without it) and converts
-// each camera's lat/lon to the twin's local meters. Required columns: lat, lon
-// (or latitude/longitude). Optional: name, heading_deg, fov_deg.
-// Heading is read as a compass bearing: 0° = north, clockwise.
+// WGS84 latitude/longitude -> UTM zone 51N, used to place configured cameras in the twin.
 
 /** WGS84 lat/lon -> UTM zone 51N [easting, northing] (Transverse Mercator series). */
 export function latLonToUtm51(lat, lon) {
@@ -18,36 +15,4 @@ export function latLonToUtm51(lat, lon) {
   const Nn = k0 * (M + N * Math.tan(phi) * ((A * A) / 2 + ((5 - t + 9 * C + 4 * C * C) * A ** 4) / 24
     + ((61 - 58 * t + t * t + 600 * C - 330 * ep2) * A ** 6) / 720));
   return [E, Nn];
-}
-
-/** Parse CSV text into cameras in local meters. Returns { cams, skipped, error }. */
-export function parseCamerasCsv(text, originUtm) {
-  const rows = text.trim().split(/\r?\n/).map((l) => l.split(",").map((c) => c.trim()));
-  const hdr = (rows.shift() || []).map((h) => h.toLowerCase());
-  const col = (...names) => names.map((n) => hdr.indexOf(n)).find((i) => i >= 0);
-  const iLat = col("lat", "latitude"), iLon = col("lon", "lng", "longitude");
-  const iName = col("name", "camera_name", "label", "id");
-  const iHd = col("heading_deg", "heading"), iFov = col("fov_deg", "fov");
-  if (iLat === undefined || iLon === undefined) {
-    return { cams: [], skipped: rows.length, error: `No lat/lon columns found. Columns: ${hdr.join(", ") || "none"}` };
-  }
-  const cams = [];
-  let skipped = 0;
-  rows.forEach((r, i) => {
-    const lat = parseFloat(r[iLat]), lon = parseFloat(r[iLon]);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) { skipped++; return; }
-    const [E, N] = latLonToUtm51(lat, lon);
-    const heading = iHd !== undefined ? parseFloat(r[iHd]) : NaN;
-    const fov = iFov !== undefined ? parseFloat(r[iFov]) : NaN;
-    cams.push({
-      id: i,
-      name: iName !== undefined && r[iName] ? r[iName] : `Camera ${i + 1}`,
-      lat, lon,
-      x: E - originUtm[0],
-      y: N - originUtm[1],
-      heading: Number.isFinite(heading) ? heading : null,
-      fov: Number.isFinite(fov) ? fov : null,
-    });
-  });
-  return { cams, skipped, error: null };
 }

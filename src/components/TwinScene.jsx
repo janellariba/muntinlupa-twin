@@ -6,10 +6,10 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { MapControls, Html, Line } from "@react-three/drei";
 import * as THREE from "three";
 import { buildingColors, toThree } from "../lib/twinGeometry";
+import CameraPopup from "./CameraPopup";
 
 const BG = "#0d1417";
-const CAMERA_MARKER_H = 25; // display only: marker height so it shows above rooftops
-const CONE_LEN = 600;       // display only: drawn view-cone length, not a detection range
+const CAMERA_MARKER_H = 30; // display only: mast height so the mark shows above rooftops
 
 /* Smoothly moves the camera to target = { look:[x,y,z], dir:[dx,dy,dz], dist }. */
 function CameraRig({ target }) {
@@ -174,42 +174,46 @@ function BarangayOutline({ rec, color, width, opacity }) {
   ));
 }
 
-/* One camera: rooftop pin, optional view cone, and a name label. */
-function CameraMarker({ cam, ground }) {
+/* One configured camera: an amber mast with a clickable camera button on top.
+   Clicking it opens a small popup above the mark with that camera's live stream. */
+function CameraMark({ cam, ground, open, onOpen, onClose }) {
   const g = ground(cam.x, cam.y);
-  const cone = useMemo(() => {
-    if (cam.heading == null || cam.fov == null) return null;
-    const s = new THREE.Shape();
-    s.moveTo(0, 0);
-    for (let k = 0; k <= 24; k++) {
-      const b = ((cam.heading - cam.fov / 2 + (cam.fov * k) / 24) * Math.PI) / 180;
-      s.lineTo(Math.sin(b) * CONE_LEN, Math.cos(b) * CONE_LEN); // x = east, y = north
-    }
-    const geo = new THREE.ShapeGeometry(s);
-    geo.rotateX(-Math.PI / 2); // north (+y) becomes -z, matching toThree()
-    return geo;
-  }, [cam.heading, cam.fov]);
+  const top = toThree(cam.x, cam.y, g + CAMERA_MARKER_H);
   return (
     <group>
       <mesh position={toThree(cam.x, cam.y, g + CAMERA_MARKER_H / 2)}>
-        <cylinderGeometry args={[6, 6, CAMERA_MARKER_H, 12]} />
+        <cylinderGeometry args={[3, 3, CAMERA_MARKER_H, 10]} />
         <meshBasicMaterial color="#f2a33a" />
       </mesh>
-      {cone && (
-        <mesh geometry={cone} position={toThree(cam.x, cam.y, g + CAMERA_MARKER_H)}>
-          <meshBasicMaterial color="#f2a33a" transparent opacity={0.22} side={THREE.DoubleSide} depthWrite={false} />
-        </mesh>
-      )}
-      <Html position={toThree(cam.x, cam.y, g + CAMERA_MARKER_H + 20)} center zIndexRange={[10, 0]} style={{ pointerEvents: "none" }}>
-        <div className="whitespace-nowrap font-display text-sm font-semibold uppercase tracking-wider text-accent [text-shadow:0_1px_3px_#000,0_0_8px_#000]">
-          {cam.name}
-        </div>
+      <Html position={top} center zIndexRange={[15, 11]}>
+        <button
+          type="button"
+          onClick={() => (open ? onClose() : onOpen(cam.id))}
+          aria-label={`${cam.name}: ${open ? "close" : "open"} camera stream`}
+          aria-pressed={open}
+          className={`group flex flex-col items-center ${open ? "" : "cursor-pointer"}`}
+        >
+          <span className={`grid size-8 place-items-center rounded-full border-2 shadow-lg transition-transform group-hover:scale-110 ${open ? "border-white bg-accent text-accent-ink" : "border-accent-ink bg-accent text-accent-ink"}`}>
+            {/* simple camera glyph */}
+            <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-hidden="true">
+              <path d="M4 7h3l1.5-2h7L17 7h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Zm8 3a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />
+            </svg>
+          </span>
+          <span className="mt-0.5 whitespace-nowrap font-display text-xs font-semibold uppercase tracking-wider text-accent [text-shadow:0_1px_3px_#000,0_0_8px_#000]">
+            {cam.name}
+          </span>
+        </button>
       </Html>
+      {open && (
+        <Html position={top} zIndexRange={[19, 16]} style={{ transform: "translate(-50%, calc(-100% - 1.4rem))" }}>
+          <CameraPopup cam={cam} onClose={onClose} />
+        </Html>
+      )}
     </group>
   );
 }
 
-const Scene = memo(function Scene({ twin, buildings, visible, colorMode, flyTarget, selected, selectedBrgy, hoverBrgy, cams, wind, autoOrbit, onPick, onHover }) {
+const Scene = memo(function Scene({ twin, buildings, visible, colorMode, flyTarget, selected, selectedBrgy, hoverBrgy, cams, openCamId, onOpenCam, onCloseCam, wind, autoOrbit, onPick, onHover }) {
   const buildingsRef = useRef();
   const terrainRef = useRef();
 
@@ -283,7 +287,9 @@ const Scene = memo(function Scene({ twin, buildings, visible, colorMode, flyTarg
       )}
       {selectedBrgy && <BarangayOutline rec={twin.barangayIndex.find((b) => b.name === selectedBrgy)} color="#f2a33a" width={4.5} opacity={1} />}
 
-      {visible.cameras && cams.map((c) => <CameraMarker key={c.id} cam={c} ground={twin.ground} />)}
+      {visible.cameras && cams.map((c) => (
+        <CameraMark key={c.id} cam={c} ground={twin.ground} open={openCamId === c.id} onOpen={onOpenCam} onClose={onCloseCam} />
+      ))}
       {visible.wind && wind && <WindParticles wind={wind} twin={twin} />}
 
       <MapControls makeDefault enableDamping minDistance={60} maxDistance={32000} maxPolarAngle={Math.PI * 0.47} autoRotate={autoOrbit} autoRotateSpeed={0.6} />

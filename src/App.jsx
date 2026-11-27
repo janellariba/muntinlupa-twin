@@ -2,12 +2,15 @@
 // Loads the city data, builds the 3D geometry, and lays out the interface:
 //   lg and up (laptop, PC, big screen): left sidebar + weather card top-right + building card bottom-right
 //   below lg (phone, tablet): top bar + bottom sheet with tabs (Weather, Places, Layers, Cameras)
+// Cameras: added in the Camera config card (lat, lon, webcam index), shown as marks; a mark opens
+// a popup with that webcam's stream.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import TwinScene, { WIND_SPEEDUP } from "./components/TwinScene";
 import WeatherCard, { useWeather, WeatherSummary } from "./components/WeatherCard";
-import { TitleBlock, LayersPanel, ColorPanel, PlacesPanel, CamerasPanel, BuildingInfo } from "./components/Panels";
+import { TitleBlock, LayersPanel, ColorPanel, PlacesPanel, BuildingInfo } from "./components/Panels";
+import CameraConfig from "./components/CameraConfig";
 import { buildTwin, toThree, findBarangay } from "./lib/twinGeometry";
-import { parseCamerasCsv } from "./lib/cameras";
+import { loadCameras, saveCameras, placeCamera, validateCamera } from "./lib/cameraConfig";
 
 const FILES = ["terrain", "roads", "buildings", "barangays"];
 const CITY = { name: "Muntinlupa City", x: 0, y: 0 }; // 0,0 = DEM centre
@@ -48,8 +51,8 @@ export default function App() {
   const [selectedBrgy, setSelectedBrgy] = useState(null); // clicked / flown-to barangay (amber outline)
   const [hoverBrgy, setHoverBrgy] = useState(null);       // barangay under the mouse (white outline)
   const [cursor, setCursor] = useState(null);
-  const [cams, setCams] = useState([]);
-  const [camNote, setCamNote] = useState("No camera data loaded. Nothing is placed until real positions are provided.");
+  const [camConfigs, setCamConfigs] = useState(loadCameras); // saved: { id, name, lat, lon, index }
+  const [openCamId, setOpenCamId] = useState(null);           // camera whose stream popup is open
   const [tab, setTab] = useState("weather");
   const [sheetOpen, setSheetOpen] = useState(false);
 
@@ -141,13 +144,19 @@ export default function App() {
     maxElev: data ? Math.round(data.terrain.meta.dem.max) : null,
   };
 
-  const onCamFile = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file || !twin) return;
-    const { cams: list, skipped, error: err } = parseCamerasCsv(await file.text(), twin.meta.origin_utm);
-    setCams(list);
-    setCamNote(err ? `${err}. Nothing was placed.` : `Placed ${list.length} from ${file.name}${skipped ? `; skipped ${skipped} rows without valid lat/lon` : ""}.`);
+  // Cameras placed on the map (local meters + barangay), recomputed from the saved lat/lon.
+  const cams = useMemo(() => (twin ? camConfigs.map((c) => placeCamera(c, twin)) : []), [twin, camConfigs]);
+  const updateCams = (fn) => setCamConfigs((list) => { const next = fn(list); saveCameras(next); return next; });
+  const saveCam = (cam) => updateCams((list) => (list.some((c) => c.id === cam.id) ? list.map((c) => (c.id === cam.id ? cam : c)) : [...list, cam]));
+  const removeCam = (id) => { updateCams((list) => list.filter((c) => c.id !== id)); if (openCamId === id) setOpenCamId(null); };
+  const showCam = (c) => {
+    setVisible((v) => ({ ...v, cameras: true }));
+    fly(c.x, c.y, "place");
+    setOpenCamId(c.id);
+    setSheetOpen(false); // phone: get the sheet out of the way of the popup
   };
+  const closeCam = useCallback(() => setOpenCamId(null), []);
+  useEffect(() => { if (!visible.cameras) setOpenCamId(null); }, [visible.cameras]);
 
   const toggle = (k) => setVisible((v) => ({ ...v, [k]: !v[k] }));
   const [ox, oy] = twin?.meta.origin_utm ?? [0, 0];
@@ -156,7 +165,10 @@ export default function App() {
     layers: <LayersPanel visible={visible} onToggle={toggle} windNote={windNote} />,
     color: <ColorPanel mode={colorMode} onMode={setColorMode} heightSources={heightSources} sourceCounts={sourceCounts} />,
     places: twin && <PlacesPanel labels={twin.labels} current={place.label} onPlace={goPlace} onOverview={overview} autoOrbit={autoOrbit} onOrbit={() => setAutoOrbit((o) => !o)} />,
-    cameras: <CamerasPanel cams={cams} note={camNote} onFile={onCamFile} />,
+    cameras: twin && (
+      <CameraConfig cameras={cams} onSave={saveCam} onRemove={removeCam} onShow={showCam}
+        validate={(form, editingId) => validateCamera(form, twin, camConfigs, editingId)} />
+    ),
     weather: <WeatherCard place={weatherPlace} w={weather} />,
     info: <BuildingInfo info={info} types={twin?.meta.building_types ?? []} heightSources={heightSources} onClose={() => setPickedTri(null)} />,
   };
@@ -175,6 +187,9 @@ export default function App() {
         selectedBrgy={selectedBrgy}
         hoverBrgy={hoverBrgy}
         cams={cams}
+        openCamId={openCamId}
+        onOpenCam={setOpenCamId}
+        onCloseCam={closeCam}
         wind={wind}
         autoOrbit={autoOrbit}
         onPick={onPick}

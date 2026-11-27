@@ -30,7 +30,7 @@ export function TitleBlock({ stats, onHide }) {
 
 const LAYER_LABELS = {
   terrain: "Terrain", buildings: "Buildings", roads: "Roads", sidewalks: "Sidewalks",
-  barangays: "Barangay boundaries", cameras: "AI-SUNOG cameras", wind: "Wind",
+  barangays: "Barangay boundaries", cameras: "Cameras", wind: "Wind",
 };
 
 export function LayersPanel({ visible, onToggle, windNote }) {
@@ -87,24 +87,6 @@ export function PlacesPanel({ labels, current, onPlace, onOverview, autoOrbit, o
         <button className="chip flex-1" onClick={onOverview}>City overview</button>
         <button className="chip flex-1" aria-pressed={autoOrbit} onClick={onOrbit}>Auto orbit</button>
       </div>
-    </div>
-  );
-}
-
-export function CamerasPanel({ cams, note, onFile }) {
-  return (
-    <div>
-      <H2>AI-SUNOG cameras</H2>
-      <span className="inline-block rounded-full border border-accent px-2 py-0.5 font-mono text-[0.68rem] font-semibold tracking-wide text-accent">
-        {cams.length ? `${cams.length} CAMERA${cams.length > 1 ? "S" : ""} FROM CSV` : "POSITIONS PENDING"}
-      </span>
-      <p className="mt-2 text-xs text-muted">{note}</p>
-      <label className="mt-2 block text-xs text-muted">
-        Load cameras.csv (needs lat, lon; optional name, heading_deg, fov_deg)
-        <input type="file" accept=".csv,text/csv" onChange={onFile}
-          className="mt-1.5 block w-full text-xs text-ink file:chip file:mr-2" />
-      </label>
-      <p className="mt-2 text-xs text-muted">Heading is a compass bearing (0° = north, clockwise). Marker and cone sizes are display only.</p>
     </div>
   );
 }
