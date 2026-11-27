@@ -23,9 +23,14 @@ export default function CameraPopup({ cam, onClose }) {
   }, [cam.index, cam.id]);
 
   useEffect(() => {
-    const onKey = (e) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // Esc closes the most recently opened popup only (popups are stacked in opening order).
+    const onKey = (e) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
   return (

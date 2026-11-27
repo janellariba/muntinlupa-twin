@@ -188,7 +188,7 @@ function CameraMark({ cam, ground, open, onOpen, onClose }) {
       <Html position={top} center zIndexRange={[15, 11]}>
         <button
           type="button"
-          onClick={() => (open ? onClose() : onOpen(cam.id))}
+          onClick={() => (open ? onClose(cam.id) : onOpen(cam.id))}
           aria-label={`${cam.name}: ${open ? "close" : "open"} camera stream`}
           aria-pressed={open}
           className={`group flex flex-col items-center ${open ? "" : "cursor-pointer"}`}
@@ -206,14 +206,14 @@ function CameraMark({ cam, ground, open, onOpen, onClose }) {
       </Html>
       {open && (
         <Html position={top} zIndexRange={[19, 16]} style={{ transform: "translate(-50%, calc(-100% - 1.4rem))" }}>
-          <CameraPopup cam={cam} onClose={onClose} />
+          <CameraPopup cam={cam} onClose={() => onClose(cam.id)} />
         </Html>
       )}
     </group>
   );
 }
 
-const Scene = memo(function Scene({ twin, buildings, visible, colorMode, flyTarget, selected, selectedBrgy, hoverBrgy, cams, openCamId, onOpenCam, onCloseCam, wind, autoOrbit, onPick, onHover }) {
+const Scene = memo(function Scene({ twin, buildings, visible, colorMode, flyTarget, selected, selectedBrgy, hoverBrgy, cams, openCamIds, onOpenCam, onCloseCam, wind, autoOrbit, onPick, onHover }) {
   const buildingsRef = useRef();
   const terrainRef = useRef();
 
@@ -288,7 +288,7 @@ const Scene = memo(function Scene({ twin, buildings, visible, colorMode, flyTarg
       {selectedBrgy && <BarangayOutline rec={twin.barangayIndex.find((b) => b.name === selectedBrgy)} color="#f2a33a" width={4.5} opacity={1} />}
 
       {visible.cameras && cams.map((c) => (
-        <CameraMark key={c.id} cam={c} ground={twin.ground} open={openCamId === c.id} onOpen={onOpenCam} onClose={onCloseCam} />
+        <CameraMark key={c.id} cam={c} ground={twin.ground} open={openCamIds.includes(c.id)} onOpen={onOpenCam} onClose={onCloseCam} />
       ))}
       {visible.wind && wind && <WindParticles wind={wind} twin={twin} />}
 

@@ -52,7 +52,7 @@ export default function App() {
   const [hoverBrgy, setHoverBrgy] = useState(null);       // barangay under the mouse (white outline)
   const [cursor, setCursor] = useState(null);
   const [camConfigs, setCamConfigs] = useState(loadCameras); // saved: { id, name, lat, lon, index }
-  const [openCamId, setOpenCamId] = useState(null);           // camera whose stream popup is open
+  const [openCamIds, setOpenCamIds] = useState([]);           // cameras whose stream popups are open (several at once)
   const [tab, setTab] = useState("weather");
   const [sheetOpen, setSheetOpen] = useState(false);
 
@@ -148,15 +148,18 @@ export default function App() {
   const cams = useMemo(() => (twin ? camConfigs.map((c) => placeCamera(c, twin)) : []), [twin, camConfigs]);
   const updateCams = (fn) => setCamConfigs((list) => { const next = fn(list); saveCameras(next); return next; });
   const saveCam = (cam) => updateCams((list) => (list.some((c) => c.id === cam.id) ? list.map((c) => (c.id === cam.id ? cam : c)) : [...list, cam]));
-  const removeCam = (id) => { updateCams((list) => list.filter((c) => c.id !== id)); if (openCamId === id) setOpenCamId(null); };
+  const openCam = useCallback((id) => setOpenCamIds((ids) => (ids.includes(id) ? ids : [...ids, id])), []);
+  const closeCam = useCallback((id) => setOpenCamIds((ids) => ids.filter((x) => x !== id)), []);
+  const removeCam = (id) => { updateCams((list) => list.filter((c) => c.id !== id)); closeCam(id); };
   const showCam = (c) => {
     setVisible((v) => ({ ...v, cameras: true }));
     fly(c.x, c.y, "place");
-    setOpenCamId(c.id);
+    openCam(c.id);
     setSheetOpen(false); // phone: get the sheet out of the way of the popup
   };
-  const closeCam = useCallback(() => setOpenCamId(null), []);
-  useEffect(() => { if (!visible.cameras) setOpenCamId(null); }, [visible.cameras]);
+  const openAllCams = () => { setVisible((v) => ({ ...v, cameras: true })); setOpenCamIds(camConfigs.map((c) => c.id)); setSheetOpen(false); };
+  const closeAllCams = () => setOpenCamIds([]);
+  useEffect(() => { if (!visible.cameras) setOpenCamIds([]); }, [visible.cameras]);
 
   const toggle = (k) => setVisible((v) => ({ ...v, [k]: !v[k] }));
   const [ox, oy] = twin?.meta.origin_utm ?? [0, 0];
@@ -167,6 +170,7 @@ export default function App() {
     places: twin && <PlacesPanel labels={twin.labels} current={place.label} onPlace={goPlace} onOverview={overview} autoOrbit={autoOrbit} onOrbit={() => setAutoOrbit((o) => !o)} />,
     cameras: twin && (
       <CameraConfig cameras={cams} onSave={saveCam} onRemove={removeCam} onShow={showCam}
+        openIds={openCamIds} onOpenAll={openAllCams} onCloseAll={closeAllCams}
         validate={(form, editingId) => validateCamera(form, twin, camConfigs, editingId)} />
     ),
     weather: <WeatherCard place={weatherPlace} w={weather} />,
@@ -187,8 +191,8 @@ export default function App() {
         selectedBrgy={selectedBrgy}
         hoverBrgy={hoverBrgy}
         cams={cams}
-        openCamId={openCamId}
-        onOpenCam={setOpenCamId}
+        openCamIds={openCamIds}
+        onOpenCam={openCam}
         onCloseCam={closeCam}
         wind={wind}
         autoOrbit={autoOrbit}

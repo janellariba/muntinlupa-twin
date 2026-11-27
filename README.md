@@ -67,8 +67,10 @@ Pushing to `main` redeploys on Vercel automatically. `vercel.json` tells Vercel 
    click one to use its index.
 3. **Add camera**. An amber mark appears on the map. Points outside Muntinlupa, or with latitude and
    longitude swapped, are refused with a message.
-4. Click the mark (or **Show** in the list) to open a small popup with the live stream. Click the mark
-   again, the x, or press Esc to close it; the webcam is released when the popup closes.
+4. Click the mark (or **Show** in the list) to open a small popup with the live stream. Several popups
+   can be open at once; **Open all streams** opens every camera. Click the mark again, the x, or press
+   Esc (closes the most recent popup) to close one; **Close all** closes every popup. A webcam is released
+   when its popup closes.
 5. The **Cameras** layer shows or hides all marks.
 
 Notes:

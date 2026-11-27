@@ -9,7 +9,7 @@ import { listCameras } from "../lib/webcam";
 const EMPTY = { name: "", lat: "", lon: "", index: "" };
 const field = "mt-1 w-full rounded-md border border-line bg-[#0f191d] px-2.5 py-1.5 text-sm text-ink placeholder:text-muted/60 focus:border-accent focus:outline-none";
 
-export default function CameraConfig({ cameras, onSave, onRemove, onShow, validate }) {
+export default function CameraConfig({ cameras, onSave, onRemove, onShow, validate, openIds = [], onOpenAll, onCloseAll }) {
   const [form, setForm] = useState(EMPTY);
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState("");
@@ -96,6 +96,13 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
         {cameras.length === 0 ? (
           <p className="text-xs text-muted">No cameras yet. Add one above and its mark appears on the map.</p>
         ) : (
+          <>
+          {cameras.length > 1 && (
+            <div className="mb-1.5 flex gap-1.5">
+              <button type="button" className="chip flex-1 py-1" onClick={onOpenAll}>Open all streams</button>
+              <button type="button" className="chip flex-1 py-1" onClick={onCloseAll} disabled={!openIds.length}>Close all</button>
+            </div>
+          )}
           <ul className="grid gap-1.5">
             {cameras.map((c) => (
               <li key={c.id} className="rounded-md border border-line p-2 text-xs">
@@ -105,13 +112,14 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
                 </div>
                 <div className="mt-0.5 font-mono text-muted tabular-nums">{c.lat.toFixed(6)}, {c.lon.toFixed(6)}{c.barangay ? ` · ${c.barangay}` : ""}</div>
                 <div className="mt-1.5 flex gap-1.5">
-                  <button type="button" className="chip flex-1 py-1" onClick={() => onShow(c)}>Show</button>
+                  <button type="button" className="chip flex-1 py-1" aria-pressed={openIds.includes(c.id)} onClick={() => onShow(c)}>Show</button>
                   <button type="button" className="chip flex-1 py-1" onClick={() => edit(c)}>Edit</button>
                   <button type="button" className="chip flex-1 py-1" onClick={() => onRemove(c.id)}>Remove</button>
                 </div>
               </li>
             ))}
           </ul>
+          </>
         )}
         <p className="mt-2 text-[0.7rem] leading-snug text-muted">
           Saved in this browser only. The stream opens the webcam with that index on the device viewing this page.
