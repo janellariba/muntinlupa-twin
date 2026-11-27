@@ -96,7 +96,9 @@ export default function App() {
     setPickedTri(tri);
     const b = twin && point ? findBarangay(twin.barangayIndex, point.x, point.y) : null;
     setSelectedBrgy(b ? b.name : null);
-    if (b) { setPlace(brgyPlace(b)); setHoverBrgy(null); }
+    setHoverBrgy(null);
+    // Inside a barangay: pin its weather. Outside the city (or the empty area around it): whole city.
+    setPlace(b ? brgyPlace(b) : CITY);
   }, [twin]);
 
   // Mouse hover: which barangay is under the pointer. Applied after 250 ms of staying on the same

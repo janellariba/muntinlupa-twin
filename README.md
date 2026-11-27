@@ -17,7 +17,8 @@ Touch: one finger pans, two fingers zoom and rotate, tap a building for details.
 
 Click or tap a barangay (or a building in it) to outline it in amber and pin its weather.
 With a mouse, the weather card follows the barangay under the pointer (white outline);
-clicking pins it. Each barangay's reading is cached for 10 minutes.
+clicking pins it. Clicking outside the city shows the whole-city weather again.
+Each barangay's reading is cached for 10 minutes.
 
 On laptop/PC the side panel and weather card each have a **Hide** button; the browser
 remembers the choice. **Wind animation** (Layers) draws streaks moving with the current
