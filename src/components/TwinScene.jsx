@@ -119,15 +119,12 @@ function WindParticles({ wind, twin }) {
     return { p, age, life, spawn, view };
   }, [count, twin]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Tails (line segments) and heads (dots). Colors are RGBA so each mark can fade in and out.
-  const { lines, heads } = useMemo(() => {
+  // One short line per mark. Colors are RGBA so each mark can fade in and out.
+  const lines = useMemo(() => {
     const l = new THREE.BufferGeometry();
     l.setAttribute("position", new THREE.BufferAttribute(new Float32Array(count * 6), 3));
     l.setAttribute("color", new THREE.BufferAttribute(new Float32Array(count * 8), 4));
-    const h = new THREE.BufferGeometry();
-    h.setAttribute("position", new THREE.BufferAttribute(new Float32Array(count * 3), 3));
-    h.setAttribute("color", new THREE.BufferAttribute(new Float32Array(count * 4), 4));
-    return { lines: l, heads: h };
+    return l;
   }, [count]);
 
   useFrame((_, rawDt) => {
@@ -141,8 +138,9 @@ function WindParticles({ wind, twin }) {
     if (controls) { view.cx = controls.target.x; view.cy = -controls.target.z; }
     view.r = Math.min(12000, Math.max(500, camDist * 1.2));
     const far2 = (view.r * 1.4) ** 2;
+    // Lighter when zoomed out: full strength up to 3 km away, easing to 30% at 15 km (whole city).
+    const zoomFade = 1 - 0.7 * Math.min(1, Math.max(0, (camDist - 3000) / 12000));
     const lp = lines.attributes.position.array, lc = lines.attributes.color.array;
-    const hp = heads.attributes.position.array, hc = heads.attributes.color.array;
     const { p, age, life, spawn } = st;
     for (let i = 0; i < count; i++) {
       age[i] += dt;
@@ -153,28 +151,19 @@ function WindParticles({ wind, twin }) {
       }
       p[i * 2] = x; p[i * 2 + 1] = y;
       const tx = x - ux * len, ty = y - uy * len;
-      const head = toThree(x, y, ground(x, y) + WIND_HEIGHT);
-      lp.set(head, i * 6);
+      lp.set(toThree(x, y, ground(x, y) + WIND_HEIGHT), i * 6);
       lp.set(toThree(tx, ty, ground(tx, ty) + WIND_HEIGHT), i * 6 + 3);
-      hp.set(head, i * 3);
       const a = Math.sin((Math.PI * age[i]) / life[i]);      // fade in and out over its life
-      // dark grey-green marks; the tail end is fully transparent
-      lc.set([0.1, 0.13, 0.12, 0.85 * a, 0.1, 0.13, 0.12, 0], i * 8);
-      hc.set([0.07, 0.09, 0.08, 0.95 * a], i * 4);
+      // dark grey-green marks: strongest at the front, fully transparent at the tail end
+      lc.set([0.1, 0.13, 0.12, 0.9 * a * zoomFade, 0.1, 0.13, 0.12, 0], i * 8);
     }
     lines.attributes.position.needsUpdate = true; lines.attributes.color.needsUpdate = true;
-    heads.attributes.position.needsUpdate = true; heads.attributes.color.needsUpdate = true;
   });
 
   return (
-    <group renderOrder={5}>
-      <lineSegments geometry={lines} frustumCulled={false}>
-        <lineBasicMaterial vertexColors transparent depthWrite={false} />
-      </lineSegments>
-      <points geometry={heads} frustumCulled={false}>
-        <pointsMaterial vertexColors transparent depthWrite={false} size={3.2} sizeAttenuation={false} />
-      </points>
-    </group>
+    <lineSegments geometry={lines} frustumCulled={false} renderOrder={5}>
+      <lineBasicMaterial vertexColors transparent depthWrite={false} />
+    </lineSegments>
   );
 }
 
