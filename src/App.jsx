@@ -3,7 +3,7 @@
 //   lg and up (laptop, PC, big screen): left sidebar + weather card top-right + building card bottom-right
 //   below lg (phone, tablet): top bar + bottom sheet with tabs (Weather, Places, Layers, Cameras)
 import { useCallback, useEffect, useMemo, useState } from "react";
-import TwinScene from "./components/TwinScene";
+import TwinScene, { WIND_SPEEDUP } from "./components/TwinScene";
 import WeatherCard, { useWeather, WeatherSummary } from "./components/WeatherCard";
 import { TitleBlock, LayersPanel, ColorPanel, PlacesPanel, CamerasPanel, BuildingInfo } from "./components/Panels";
 import { buildTwin, toThree } from "./lib/twinGeometry";
@@ -12,14 +12,19 @@ import { parseCamerasCsv } from "./lib/cameras";
 const FILES = ["terrain", "roads", "buildings", "barangays"];
 const CITY = { name: "Muntinlupa City", x: 0, y: 0 }; // 0,0 = DEM centre
 
-/* Camera framing per screen shape. Portrait screens look north along the city's long axis. */
-function framing(kind) {
+/* Remember the desktop panel choices between visits (one browser only; safe if storage is blocked). */
+const remembered = (key, fallback) => { try { const v = localStorage.getItem(key); return v == null ? fallback : v === "1"; } catch { return fallback; } };
+const remember = (key, on) => { try { localStorage.setItem(key, on ? "1" : "0"); } catch { /* storage unavailable */ } };
+
+/* Camera framing per screen shape. Portrait screens look north along the city's long axis.
+   `panels` = whether the desktop side panel / weather card are open (they cover the screen edges). */
+function framing(kind, panels) {
   const portrait = window.innerWidth < window.innerHeight;
-  const wide = window.innerWidth >= 1024; // side panel + weather card cover both edges: pull back
+  const wide = window.innerWidth >= 1024 && (panels.side || panels.weather);
   if (kind === "overview") {
     return portrait
       ? { dx: -600, dy: -1200, dist: 21500, dir: [0.06, 0.86, 0.5] }
-      : { dx: wide ? -1300 : 0, dy: -300, dist: wide ? 17000 : 14500, dir: [0.45, 0.75, 0.5] };
+      : { dx: wide && panels.side ? -1300 : 0, dy: -300, dist: wide ? 17000 : 14500, dir: [0.45, 0.75, 0.5] };
   }
   return portrait ? { dx: 0, dy: -300, dist: 3600, dir: [0.06, 0.86, 0.5] } : { dx: 0, dy: 0, dist: 2600, dir: [0.45, 0.75, 0.5] };
 }
@@ -30,7 +35,11 @@ export default function App() {
   const [error, setError] = useState("");
   const [twin, setTwin] = useState(null);
 
-  const [visible, setVisible] = useState({ terrain: true, buildings: true, roads: true, sidewalks: true, barangays: true, cameras: true });
+  const [visible, setVisible] = useState({ terrain: true, buildings: true, roads: true, sidewalks: true, barangays: true, cameras: true, wind: false });
+  const [showSide, setShowSide] = useState(() => remembered("twin.sidePanel", true));
+  const [showWeather, setShowWeather] = useState(() => remembered("twin.weatherCard", true));
+  const toggleSide = (on) => { setShowSide(on); remember("twin.sidePanel", on); };
+  const toggleWeather = (on) => { setShowWeather(on); remember("twin.weatherCard", on); };
   const [colorMode, setColorMode] = useState("type");
   const [flyTarget, setFlyTarget] = useState(null);
   const [place, setPlace] = useState(CITY);
@@ -66,10 +75,10 @@ export default function App() {
 
   const fly = useCallback((x, y, kind) => {
     if (!twin) return;
-    const f = framing(kind);
+    const f = framing(kind, { side: showSide, weather: showWeather });
     const tx = x + f.dx, ty = y + f.dy;
     setFlyTarget({ look: toThree(tx, ty, twin.ground(tx, ty)), dir: f.dir, dist: f.dist });
-  }, [twin]);
+  }, [twin, showSide, showWeather]);
 
   const overview = useCallback(() => { fly(0, 0, "overview"); setPlace(CITY); }, [fly]);
   const goPlace = useCallback((l) => {
@@ -80,6 +89,16 @@ export default function App() {
   useEffect(() => { if (twin) overview(); }, [twin]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const weather = useWeather(place, twin?.meta.origin_utm);
+
+  // Wind for the animation: the current reading at the selected place.
+  const wv = weather.data?.values;
+  const wind = useMemo(
+    () => (wv?.wind_speed_10m != null && wv?.wind_direction_10m != null ? { speedKmh: wv.wind_speed_10m, fromDeg: wv.wind_direction_10m } : null),
+    [wv?.wind_speed_10m, wv?.wind_direction_10m]
+  );
+  const windNote = wind
+    ? `${wind.speedKmh.toFixed(0)} km/h from ${Math.round(wind.fromDeg)}° at ${place.name}. One model reading for the whole city; motion sped up ${WIND_SPEEDUP}× so it is visible.`
+    : "Waiting for weather data: the animation starts when the wind reading arrives.";
 
   const selected = twin && pickedTri != null ? twin.buildings.owner[pickedTri] : null;
   const info = selected != null ? data.buildings[selected] : null;
@@ -109,7 +128,7 @@ export default function App() {
   const [ox, oy] = twin?.meta.origin_utm ?? [0, 0];
 
   const panels = {
-    layers: <LayersPanel visible={visible} onToggle={toggle} />,
+    layers: <LayersPanel visible={visible} onToggle={toggle} windNote={windNote} />,
     color: <ColorPanel mode={colorMode} onMode={setColorMode} heightSources={heightSources} sourceCounts={sourceCounts} />,
     places: twin && <PlacesPanel labels={twin.labels} current={place.label} onPlace={goPlace} onOverview={overview} autoOrbit={autoOrbit} onOrbit={() => setAutoOrbit((o) => !o)} />,
     cameras: <CamerasPanel cams={cams} note={camNote} onFile={onCamFile} />,
@@ -129,6 +148,7 @@ export default function App() {
         flyTarget={flyTarget}
         selected={selected}
         cams={cams}
+        wind={wind}
         autoOrbit={autoOrbit}
         onPick={setPickedTri}
         onHover={setCursor}
@@ -154,20 +174,35 @@ export default function App() {
       )}
 
       {/* ===== Laptop / PC / big screen ===== */}
+      {showSide ? (
       <aside className="scroll-thin absolute inset-y-4 left-4 z-20 hidden w-80 flex-col gap-3 overflow-y-auto pr-1 lg:flex 2xl:w-96">
-        <div className="panel p-4"><TitleBlock stats={stats} /></div>
+        <div className="panel p-4"><TitleBlock stats={stats} onHide={() => toggleSide(false)} /></div>
         <div className="panel p-4">{panels.layers}</div>
         <div className="panel p-4">{panels.color}</div>
         <div className="panel p-4">{panels.places}</div>
         <div className="panel p-4">{panels.cameras}</div>
       </aside>
+      ) : (
+        <button className="panel absolute left-4 top-4 z-20 hidden items-center gap-2 px-3 py-2 text-sm hover:border-accent lg:flex"
+          onClick={() => toggleSide(true)} aria-label="Show side panel">
+          <span className="font-display text-base font-bold uppercase tracking-wide">Muntinlupa <span className="text-accent">Twin</span></span>
+          <span className="text-muted">› Show panel</span>
+        </button>
+      )}
       <div className="absolute right-4 top-4 z-20 hidden w-80 flex-col items-end gap-2 lg:flex 2xl:w-96">
         {cursor && twin && (
           <div className="panel px-2.5 py-1.5 font-mono text-xs text-muted tabular-nums">
             E {(cursor.x + ox).toFixed(0)} · N {(cursor.y + oy).toFixed(0)} · elev {twin.ground(cursor.x, cursor.y).toFixed(1)} m
           </div>
         )}
-        <div className="panel w-full p-4">{panels.weather}</div>
+        {showWeather ? (
+          <div className="panel w-full p-4"><WeatherCard place={place} w={weather} onHide={() => toggleWeather(false)} /></div>
+        ) : (
+          <button className="panel flex items-center gap-2 px-3 py-2 text-sm hover:border-accent" onClick={() => toggleWeather(true)} aria-label="Show weather card">
+            <span className="font-display text-base font-semibold tabular-nums">{wv?.temperature_2m != null ? `${wv.temperature_2m.toFixed(1)}°C` : "Weather"}</span>
+            <span className="text-muted">‹ Show weather</span>
+          </button>
+        )}
       </div>
       {info && <div className="panel absolute bottom-4 right-4 z-20 hidden w-80 p-4 lg:block 2xl:w-96">{panels.info}</div>}
 

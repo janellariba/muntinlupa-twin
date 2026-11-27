@@ -6,12 +6,15 @@ export const H2 = ({ children }) => (
   <h2 className="mb-2 font-display text-sm font-semibold uppercase tracking-[0.08em] text-muted">{children}</h2>
 );
 
-export function TitleBlock({ stats }) {
+export function TitleBlock({ stats, onHide }) {
   return (
     <div>
-      <h1 className="font-display text-3xl font-bold uppercase leading-none tracking-wide">
-        Muntinlupa <span className="text-accent">Digital Twin</span>
-      </h1>
+      <div className="flex items-start justify-between gap-2">
+        <h1 className="font-display text-3xl font-bold uppercase leading-none tracking-wide">
+          Muntinlupa <span className="text-accent">Digital Twin</span>
+        </h1>
+        {onHide && <button className="chip shrink-0 px-2 py-1 text-xs" onClick={onHide} aria-label="Hide side panel">‹ Hide</button>}
+      </div>
       <p className="mt-1.5 text-xs text-muted">EPSG:32651 · UTM 51N · 30 m DEM · OSM buildings and roads</p>
       <div className="mt-3 grid grid-cols-3 gap-2">
         {[[stats.buildings, "buildings"], [stats.roads, "road segments"], [stats.maxElev, "max elev. (m)"]].map(([n, l]) => (
@@ -27,10 +30,10 @@ export function TitleBlock({ stats }) {
 
 const LAYER_LABELS = {
   terrain: "Terrain", buildings: "Buildings", roads: "Roads", sidewalks: "Sidewalks",
-  barangays: "Barangay boundaries", cameras: "AI-SUNOG cameras",
+  barangays: "Barangay boundaries", cameras: "AI-SUNOG cameras", wind: "Wind animation",
 };
 
-export function LayersPanel({ visible, onToggle }) {
+export function LayersPanel({ visible, onToggle, windNote }) {
   return (
     <div>
       <H2>Layers</H2>
@@ -42,6 +45,7 @@ export function LayersPanel({ visible, onToggle }) {
           </label>
         ))}
       </div>
+      {visible.wind && <p className="mt-1.5 text-xs leading-snug text-muted">{windNote}</p>}
     </div>
   );
 }

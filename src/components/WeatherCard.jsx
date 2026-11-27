@@ -49,12 +49,15 @@ export function WeatherSummary({ place, w }) {
   );
 }
 
-export default function WeatherCard({ place, w }) {
+export default function WeatherCard({ place, w, onHide }) {
   const v = w.data?.values, u = w.data?.units;
   const wd = v?.wind_direction_10m ?? 0;
   return (
     <section aria-live="polite" aria-label="Current weather">
-      <h2 className="font-display text-lg font-semibold uppercase leading-tight tracking-wide">{place?.name}</h2>
+      <div className="flex items-start justify-between gap-2">
+        <h2 className="font-display text-lg font-semibold uppercase leading-tight tracking-wide">{place?.name}</h2>
+        {onHide && <button className="chip shrink-0 px-2 py-1 text-xs" onClick={onHide} aria-label="Hide weather card">Hide ›</button>}
+      </div>
       {w.lat != null && <p className="font-mono text-[0.7rem] text-muted tabular-nums">{w.lat.toFixed(4)}°N {w.lon.toFixed(4)}°E</p>}
 
       {w.status === "loading" && <p className="mt-3 text-sm text-muted">Loading current weather…</p>}

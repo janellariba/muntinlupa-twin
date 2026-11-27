@@ -15,6 +15,10 @@ Tailwind CSS v4 and React Three Fiber. Adapts to phones, tablets, laptops and bi
 
 Touch: one finger pans, two fingers zoom and rotate, tap a building for details.
 
+On laptop/PC the side panel and weather card each have a **Hide** button; the browser
+remembers the choice. **Wind animation** (Layers) draws streaks moving with the current
+wind reading at the selected place: one value for the whole city, sped up 40x to be visible.
+
 ## Project structure
 
 | Path | What it is |

@@ -85,6 +85,73 @@ function Picker({ buildingsRef, terrainRef, onPick, onHover }) {
   return null;
 }
 
+/* ---------- Wind animation ----------
+   Streaks drift across the city in the current wind direction. One wind value covers the
+   whole city (it comes from the weather model's grid point), so every streak moves the same way.
+   Real wind is too slow to see at city scale, so motion is sped up WIND_SPEEDUP times. */
+export const WIND_SPEEDUP = 40;    // display only: animation speed multiplier
+const WIND_HEIGHT = 70;            // display only: streaks float 70 m above the ground
+function WindParticles({ wind, twin }) {
+  const count = typeof window !== "undefined" && window.innerWidth < 768 ? 900 : 2000; // fewer on phones
+  const { ground, meta } = twin;
+  const D = meta.dem;
+  const box = { x0: D.left, x1: D.left + D.w * D.res, y0: D.top - D.h * D.res, y1: D.top };
+
+  // Particle state: position (local meters), age and lifetime (seconds).
+  const st = useMemo(() => {
+    const p = new Float32Array(count * 2), age = new Float32Array(count), life = new Float32Array(count);
+    const spawn = (i) => {
+      for (let t = 0; t < 30; t++) { // only spawn over the city (DEM cells outside it are 0)
+        const x = box.x0 + Math.random() * (box.x1 - box.x0), y = box.y0 + Math.random() * (box.y1 - box.y0);
+        if (ground(x, y) > 0) { p[i * 2] = x; p[i * 2 + 1] = y; break; }
+      }
+      age[i] = 0; life[i] = 3 + Math.random() * 5;
+    };
+    for (let i = 0; i < count; i++) { spawn(i); age[i] = Math.random() * life[i]; }
+    return { p, age, life, spawn };
+  }, [count, twin]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const geo = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(count * 6), 3));
+    g.setAttribute("color", new THREE.BufferAttribute(new Float32Array(count * 6), 3));
+    return g;
+  }, [count]);
+
+  useFrame((_, rawDt) => {
+    const dt = Math.min(rawDt, 0.05);
+    const ms = (wind.speedKmh / 3.6) * WIND_SPEEDUP;        // m/s on screen
+    const b = ((wind.fromDeg + 180) * Math.PI) / 180;       // direction the air moves TO
+    const ux = Math.sin(b), uy = Math.cos(b);               // x = east, y = north
+    const trail = 50 + ms * 0.7;                            // streak length grows with speed
+    const pos = geo.attributes.position.array, col = geo.attributes.color.array;
+    const { p, age, life, spawn } = st;
+    for (let i = 0; i < count; i++) {
+      age[i] += dt;
+      let x = p[i * 2] + ux * ms * dt, y = p[i * 2 + 1] + uy * ms * dt;
+      const g = ground(x, y);
+      if (age[i] > life[i] || g <= 0 || x < box.x0 || x > box.x1 || y < box.y0 || y > box.y1) {
+        spawn(i); x = p[i * 2]; y = p[i * 2 + 1];
+      }
+      p[i * 2] = x; p[i * 2 + 1] = y;
+      const tx = x - ux * trail, ty = y - uy * trail;
+      const head = toThree(x, y, ground(x, y) + WIND_HEIGHT), tail = toThree(tx, ty, ground(tx, ty) + WIND_HEIGHT);
+      pos.set(head, i * 6); pos.set(tail, i * 6 + 3);
+      const f = Math.sin((Math.PI * age[i]) / life[i]);     // fade in and out over its life
+      col[i * 6] = 0.72 * f; col[i * 6 + 1] = 0.86 * f; col[i * 6 + 2] = 1.0 * f; // head: pale blue
+      col[i * 6 + 3] = 0; col[i * 6 + 4] = 0; col[i * 6 + 5] = 0;                  // tail: fades out
+    }
+    geo.attributes.position.needsUpdate = true;
+    geo.attributes.color.needsUpdate = true;
+  });
+
+  return (
+    <lineSegments geometry={geo} frustumCulled={false} renderOrder={5}>
+      <lineBasicMaterial vertexColors transparent blending={THREE.AdditiveBlending} depthWrite={false} />
+    </lineSegments>
+  );
+}
+
 /* One camera: rooftop pin, optional view cone, and a name label. */
 function CameraMarker({ cam, ground }) {
   const g = ground(cam.x, cam.y);
@@ -120,7 +187,7 @@ function CameraMarker({ cam, ground }) {
   );
 }
 
-const Scene = memo(function Scene({ twin, buildings, visible, colorMode, flyTarget, selected, cams, autoOrbit, onPick, onHover }) {
+const Scene = memo(function Scene({ twin, buildings, visible, colorMode, flyTarget, selected, cams, wind, autoOrbit, onPick, onHover }) {
   const buildingsRef = useRef();
   const terrainRef = useRef();
 
@@ -181,9 +248,8 @@ const Scene = memo(function Scene({ twin, buildings, visible, colorMode, flyTarg
           </lineSegments>
           {twin.labels.map((l) => (
             <Html key={l.name} position={l.position} center zIndexRange={[10, 0]} style={{ pointerEvents: "none" }}>
-              <div className="text-center whitespace-nowrap [text-shadow:0_1px_3px_#000,0_0_8px_#000]">
-                <div className="font-display text-xs sm:text-sm font-semibold uppercase tracking-wider text-white">{l.name}</div>
-                {l.pop2018 && <div className="hidden sm:block text-[0.65rem] text-[#cfe0dc]">Pop. {l.pop2018.toLocaleString()} (2018)</div>}
+              <div className="whitespace-nowrap font-display text-xs font-semibold uppercase tracking-wider text-white [text-shadow:0_1px_3px_#000,0_0_8px_#000] sm:text-sm">
+                {l.name}
               </div>
             </Html>
           ))}
@@ -191,6 +257,7 @@ const Scene = memo(function Scene({ twin, buildings, visible, colorMode, flyTarg
       )}
 
       {visible.cameras && cams.map((c) => <CameraMarker key={c.id} cam={c} ground={twin.ground} />)}
+      {visible.wind && wind && <WindParticles wind={wind} twin={twin} />}
 
       <MapControls makeDefault enableDamping minDistance={60} maxDistance={32000} maxPolarAngle={Math.PI * 0.47} autoRotate={autoOrbit} autoRotateSpeed={0.6} />
       <CameraRig target={flyTarget} />
