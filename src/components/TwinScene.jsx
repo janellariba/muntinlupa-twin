@@ -88,36 +88,46 @@ function Picker({ buildingsRef, terrainRef, onPick, onHover }) {
 }
 
 /* ---------- Wind animation ----------
-   Streaks drift across the city in the current wind direction. One wind value covers the
-   whole city (it comes from the weather model's grid point), so every streak moves the same way.
-   Real wind is too slow to see at city scale, so motion is sped up WIND_SPEEDUP times. */
+   Small dark comet marks drift across the city in the current wind direction, like a wind map.
+   One wind value covers the whole city (it comes from the weather model's grid point), so every
+   mark moves the same way. Real wind is too slow to see at city scale, so motion is sped up. */
 export const WIND_SPEEDUP = 40;    // display only: animation speed multiplier
-const WIND_HEIGHT = 70;            // display only: streaks float 70 m above the ground
+const WIND_HEIGHT = 35;            // display only: marks float 35 m above the ground
+const MARK_SCREEN = 0.022;         // display only: mark length as a fraction of camera distance (about 12-15 px at any zoom)
 function WindParticles({ wind, twin }) {
-  const count = typeof window !== "undefined" && window.innerWidth < 768 ? 900 : 2000; // fewer on phones
+  const { camera, controls } = useThree();
+  const count = typeof window !== "undefined" && window.innerWidth < 768 ? 1200 : 2600; // fewer on phones
   const { ground, meta } = twin;
   const D = meta.dem;
   const box = { x0: D.left, x1: D.left + D.w * D.res, y0: D.top - D.h * D.res, y1: D.top };
 
   // Particle state: position (local meters), age and lifetime (seconds).
+  // Marks spawn within a radius of the point being looked at; the radius grows with zoom-out,
+  // so the number of marks on screen stays roughly the same at any zoom level.
   const st = useMemo(() => {
     const p = new Float32Array(count * 2), age = new Float32Array(count), life = new Float32Array(count);
+    const view = { cx: 0, cy: 0, r: 9000 };
     const spawn = (i) => {
-      for (let t = 0; t < 30; t++) { // only spawn over the city (DEM cells outside it are 0)
-        const x = box.x0 + Math.random() * (box.x1 - box.x0), y = box.y0 + Math.random() * (box.y1 - box.y0);
-        if (ground(x, y) > 0) { p[i * 2] = x; p[i * 2 + 1] = y; break; }
+      for (let t = 0; t < 30; t++) { // only over the city (DEM cells outside it are 0)
+        const ang = Math.random() * Math.PI * 2, d = view.r * Math.sqrt(Math.random());
+        const x = view.cx + Math.cos(ang) * d, y = view.cy + Math.sin(ang) * d;
+        if (x > box.x0 && x < box.x1 && y > box.y0 && y < box.y1 && ground(x, y) > 0) { p[i * 2] = x; p[i * 2 + 1] = y; break; }
       }
-      age[i] = 0; life[i] = 3 + Math.random() * 5;
+      age[i] = 0; life[i] = 2.5 + Math.random() * 4;
     };
     for (let i = 0; i < count; i++) { spawn(i); age[i] = Math.random() * life[i]; }
-    return { p, age, life, spawn };
+    return { p, age, life, spawn, view };
   }, [count, twin]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const geo = useMemo(() => {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(count * 6), 3));
-    g.setAttribute("color", new THREE.BufferAttribute(new Float32Array(count * 6), 3));
-    return g;
+  // Tails (line segments) and heads (dots). Colors are RGBA so each mark can fade in and out.
+  const { lines, heads } = useMemo(() => {
+    const l = new THREE.BufferGeometry();
+    l.setAttribute("position", new THREE.BufferAttribute(new Float32Array(count * 6), 3));
+    l.setAttribute("color", new THREE.BufferAttribute(new Float32Array(count * 8), 4));
+    const h = new THREE.BufferGeometry();
+    h.setAttribute("position", new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+    h.setAttribute("color", new THREE.BufferAttribute(new Float32Array(count * 4), 4));
+    return { lines: l, heads: h };
   }, [count]);
 
   useFrame((_, rawDt) => {
@@ -125,32 +135,46 @@ function WindParticles({ wind, twin }) {
     const ms = (wind.speedKmh / 3.6) * WIND_SPEEDUP;        // m/s on screen
     const b = ((wind.fromDeg + 180) * Math.PI) / 180;       // direction the air moves TO
     const ux = Math.sin(b), uy = Math.cos(b);               // x = east, y = north
-    const trail = 50 + ms * 0.7;                            // streak length grows with speed
-    const pos = geo.attributes.position.array, col = geo.attributes.color.array;
+    const camDist = controls ? camera.position.distanceTo(controls.target) : 5000;
+    const len = Math.min(500, Math.max(10, camDist * MARK_SCREEN)); // short mark, similar size at any zoom
+    const { view } = st;
+    if (controls) { view.cx = controls.target.x; view.cy = -controls.target.z; }
+    view.r = Math.min(12000, Math.max(500, camDist * 1.2));
+    const far2 = (view.r * 1.4) ** 2;
+    const lp = lines.attributes.position.array, lc = lines.attributes.color.array;
+    const hp = heads.attributes.position.array, hc = heads.attributes.color.array;
     const { p, age, life, spawn } = st;
     for (let i = 0; i < count; i++) {
       age[i] += dt;
       let x = p[i * 2] + ux * ms * dt, y = p[i * 2 + 1] + uy * ms * dt;
-      const g = ground(x, y);
-      if (age[i] > life[i] || g <= 0 || x < box.x0 || x > box.x1 || y < box.y0 || y > box.y1) {
+      const out = (x - view.cx) ** 2 + (y - view.cy) ** 2 > far2; // left the area in view (e.g. after flying)
+      if (out || age[i] > life[i] || ground(x, y) <= 0 || x < box.x0 || x > box.x1 || y < box.y0 || y > box.y1) {
         spawn(i); x = p[i * 2]; y = p[i * 2 + 1];
       }
       p[i * 2] = x; p[i * 2 + 1] = y;
-      const tx = x - ux * trail, ty = y - uy * trail;
-      const head = toThree(x, y, ground(x, y) + WIND_HEIGHT), tail = toThree(tx, ty, ground(tx, ty) + WIND_HEIGHT);
-      pos.set(head, i * 6); pos.set(tail, i * 6 + 3);
-      const f = Math.sin((Math.PI * age[i]) / life[i]);     // fade in and out over its life
-      col[i * 6] = 0.72 * f; col[i * 6 + 1] = 0.86 * f; col[i * 6 + 2] = 1.0 * f; // head: pale blue
-      col[i * 6 + 3] = 0; col[i * 6 + 4] = 0; col[i * 6 + 5] = 0;                  // tail: fades out
+      const tx = x - ux * len, ty = y - uy * len;
+      const head = toThree(x, y, ground(x, y) + WIND_HEIGHT);
+      lp.set(head, i * 6);
+      lp.set(toThree(tx, ty, ground(tx, ty) + WIND_HEIGHT), i * 6 + 3);
+      hp.set(head, i * 3);
+      const a = Math.sin((Math.PI * age[i]) / life[i]);      // fade in and out over its life
+      // dark grey-green marks; the tail end is fully transparent
+      lc.set([0.1, 0.13, 0.12, 0.85 * a, 0.1, 0.13, 0.12, 0], i * 8);
+      hc.set([0.07, 0.09, 0.08, 0.95 * a], i * 4);
     }
-    geo.attributes.position.needsUpdate = true;
-    geo.attributes.color.needsUpdate = true;
+    lines.attributes.position.needsUpdate = true; lines.attributes.color.needsUpdate = true;
+    heads.attributes.position.needsUpdate = true; heads.attributes.color.needsUpdate = true;
   });
 
   return (
-    <lineSegments geometry={geo} frustumCulled={false} renderOrder={5}>
-      <lineBasicMaterial vertexColors transparent blending={THREE.AdditiveBlending} depthWrite={false} />
-    </lineSegments>
+    <group renderOrder={5}>
+      <lineSegments geometry={lines} frustumCulled={false}>
+        <lineBasicMaterial vertexColors transparent depthWrite={false} />
+      </lineSegments>
+      <points geometry={heads} frustumCulled={false}>
+        <pointsMaterial vertexColors transparent depthWrite={false} size={3.2} sizeAttenuation={false} />
+      </points>
+    </group>
   );
 }
 

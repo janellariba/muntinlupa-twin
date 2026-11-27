@@ -21,7 +21,7 @@ clicking pins it. Clicking outside the city shows the whole-city weather again.
 Each barangay's reading is cached for 10 minutes.
 
 On laptop/PC the side panel and weather card each have a **Hide** button; the browser
-remembers the choice. **Wind** (Layers) draws streaks moving with the current
+remembers the choice. **Wind** (Layers) draws small dark comet marks moving with the current
 wind reading at the selected place: one value for the whole city, sped up 40x to be visible.
 
 ## Project structure
