@@ -112,6 +112,35 @@ test model reproduced the pyproj intersection to 6 decimals.
 
 Limits: assumes one fire at a time; pinhole bearing model without lens calibration; values are temporary.
 
+## Admin console and database
+
+Two pages share the same 3D city:
+
+| Page | Who | What |
+|---|---|---|
+| `/` | anyone | Read only. Cameras, latest snapshot per camera and the latest fire estimate, from the database every 5 s. |
+| `/admin` | admin password | Camera config (saved to the database), webcam streams, detection, triangulation, logging, recording. |
+
+```
+admin laptop (/admin) --POST--> /api (Vercel functions) --> Supabase Postgres + Storage (snapshots)
+twin on any device (/) --GET every 5 s--> /api/events
+recordings (.webm) --> saved on the admin laptop only; the database keeps a log row
+```
+
+Setup (once):
+1. Supabase: SQL editor, run `db/schema.sql` (tables, row level security, private `twin-snapshots` bucket). Safe to re-run.
+2. Vercel, Project Settings, Environment Variables (Production + Preview):
+   `DATABASE_URL` (Supabase Transaction pooler, port 6543), `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ADMIN_PASSWORD`. Redeploy after adding.
+3. Open `/admin`, log in. Old cameras saved in that browser can be imported with one click.
+
+Saved while detecting (approved 2026-11-28, `src/lib/detectionConfig.js` LOGGING): 1 annotated snapshot per camera every 10 s,
+the estimate when it appears then every 10 s, manual recordings stop after 1 hour, twin refresh every 5 s.
+Derived: a camera shows "detecting now" while its last snapshot is under 20 s old; an estimate is "active" under 20 s, otherwise it is drawn faded as the last estimate.
+Other values: admin session 12 h, snapshot links valid 1 h, 1 s delay after a wrong password, snapshot JPEG quality 0.8.
+
+Recording: Chrome/Edge write straight to a chosen folder (no memory limit); other browsers download when you stop.
+Chrome does not store the video length in .webm files, so some players cannot seek; VLC plays them fine.
+
 ## Backup
 
 The version before Camera config is kept on the branch **`backup/before-camera-config`**

@@ -32,3 +32,18 @@ export const TRIANGULATION = {
 //   bearing = heading + atan( (x - W/2) / (W/2) * tan(FOV/2) )
 // x = box centre in pixels, W = image width, heading = true bearing of the image centre.
 // Temporary until the cameras are calibrated.
+
+// Database logging and recording (admin console). TEMPORARY values approved 2026-11-28.
+export const LOGGING = {
+  // Save 1 snapshot (picture + detection) per camera at most every N seconds while it sees fire/smoke.
+  snapshotIntervalS: 10,
+  // Save the fire estimate when it first appears, then at most every N seconds while it lasts.
+  estimateIntervalS: 10,
+  // Manual recordings stop automatically after this many seconds (1 hour). Saved on the admin laptop.
+  maxRecordingS: 3600,
+  // The twin page asks the database for cameras, snapshots and the estimate every N seconds.
+  twinRefreshS: 5,
+};
+// Derived, not a new value: the twin shows an estimate as ACTIVE while it is newer than
+// 2 x estimateIntervalS (it is re-saved every estimateIntervalS while the fire is tracked).
+export const ACTIVE_ESTIMATE_S = 2 * LOGGING.estimateIntervalS;

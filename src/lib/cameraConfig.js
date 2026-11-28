@@ -2,8 +2,8 @@
 // Cameras the user adds in the Camera config card: name, lat/lon (WGS84), webcam index, and the
 // optional MEASURED heading (true bearing of the image centre, 0 = north, clockwise) and horizontal
 // field of view. Empty heading/FOV = NOT MEASURED: the camera still detects but gives no bearing.
-// Saved in this browser's localStorage (only lat/lon/index/name are stored; map positions are
-// recomputed on load, so they stay right if the twin's DEM or origin changes).
+// Saved in the database (admin console). Map positions are recomputed on load, so they stay right if
+// the twin's DEM or origin changes. loadCameras() only reads the old per-browser list, for importing.
 import { latLonToUtm51 } from "./cameras";
 import { findBarangay } from "./twinGeometry";
 
@@ -21,6 +21,12 @@ export function loadCameras() {
 
 export function saveCameras(list) {
   try { localStorage.setItem(KEY, JSON.stringify(list)); return true; } catch { return false; }
+}
+
+/** After cameras are copied into the database: keep the old list under another key (as a backup)
+ *  so the import offer does not show again. */
+export function markImported() {
+  try { localStorage.setItem(`${KEY}.imported`, localStorage.getItem(KEY) || "[]"); localStorage.removeItem(KEY); } catch { /* storage unavailable */ }
 }
 
 /** Where a camera sits in the twin: local meters and its barangay (null if outside the city). */

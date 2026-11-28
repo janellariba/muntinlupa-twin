@@ -7,6 +7,7 @@ import { MapControls, Html, Line } from "@react-three/drei";
 import * as THREE from "three";
 import { buildingColors, toThree } from "../lib/twinGeometry";
 import CameraPopup from "./CameraPopup";
+import CameraInfoPopup from "./CameraInfoPopup";
 import { TRIANGULATION } from "../lib/detectionConfig";
 
 const BG = "#0d1417";
@@ -177,7 +178,7 @@ function BarangayOutline({ rec, color, width, opacity }) {
 
 /* One configured camera: an amber mast with a clickable camera button on top.
    Clicking it opens a small popup above the mark with that camera's live stream. */
-function CameraMark({ cam, ground, open, onOpen, onClose, detecting, onDetResult }) {
+function CameraMark({ cam, ground, open, onOpen, onClose, detecting, onDetResult, admin }) {
   const g = ground(cam.x, cam.y);
   const top = toThree(cam.x, cam.y, g + CAMERA_MARKER_H);
   return (
@@ -194,7 +195,7 @@ function CameraMark({ cam, ground, open, onOpen, onClose, detecting, onDetResult
           aria-pressed={open}
           className={`group flex flex-col items-center ${open ? "" : "cursor-pointer"}`}
         >
-          <span className={`grid size-8 place-items-center rounded-full border-2 shadow-lg transition-transform group-hover:scale-110 ${open ? "border-white bg-accent text-accent-ink" : "border-accent-ink bg-accent text-accent-ink"}`}>
+          <span className={`grid size-8 place-items-center rounded-full border-2 shadow-lg transition-transform group-hover:scale-110 ${cam.detectingNow ? "animate-pulse !bg-red-600 text-white" : ""} ${open ? "border-white bg-accent text-accent-ink" : "border-accent-ink bg-accent text-accent-ink"}`}>
             {/* simple camera glyph */}
             <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-hidden="true">
               <path d="M4 7h3l1.5-2h7L17 7h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Zm8 3a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />
@@ -207,7 +208,9 @@ function CameraMark({ cam, ground, open, onOpen, onClose, detecting, onDetResult
       </Html>
       {open && (
         <Html position={top} zIndexRange={[19, 16]} style={{ transform: "translate(-50%, calc(-100% - 1.4rem))" }}>
-          <CameraPopup cam={cam} onClose={() => onClose(cam.id)} detecting={detecting} onResult={onDetResult} />
+          {admin
+            ? <CameraPopup cam={cam} onClose={() => onClose(cam.id)} detecting={detecting} onResult={onDetResult} admin={admin} />
+            : <CameraInfoPopup cam={cam} onClose={() => onClose(cam.id)} />}
         </Html>
       )}
     </group>
@@ -217,7 +220,8 @@ function CameraMark({ cam, ground, open, onOpen, onClose, detecting, onDetResult
 /* Live triangulation on the map: a bearing line from each camera (dashed when from smoke), and when
    the solve succeeds, a red fire mark with its 95% error ellipse. Line length is display only. */
 function TriangulationLayer({ live, ground }) {
-  const { rays = [], result, estimate } = live;
+  const { rays = [], result, estimate, stored } = live;
+  const old = stored && !stored.active; // a saved estimate that is no longer being updated
   const drape = (pts, lift) => pts.map(([x, y]) => toThree(x, y, ground(x, y) + lift));
   const lines = rays.map((r) => {
     const L = result?.status === "ok"
@@ -239,24 +243,24 @@ function TriangulationLayer({ live, ground }) {
   return (
     <group>
       {lines.map((l) => (
-        <Line key={l.id} points={l.pts} color="#ff6a2b" lineWidth={2.5} dashed={l.smoke} dashSize={60} gapSize={40} transparent opacity={0.9} depthTest={false} renderOrder={21} />
+        <Line key={l.id} points={l.pts} color="#ff6a2b" lineWidth={2.5} dashed={l.smoke} dashSize={60} gapSize={40} transparent opacity={old ? 0.35 : 0.9} depthTest={false} renderOrder={21} />
       ))}
       {estimate && (
         <>
-          <Line points={ring} color="#ff3b30" lineWidth={3} depthTest={false} renderOrder={22} />
+          <Line points={ring} color={old ? "#b0726b" : "#ff3b30"} lineWidth={3} depthTest={false} renderOrder={22} />
           <mesh position={toThree(estimate.x, estimate.y, ground(estimate.x, estimate.y) + 30)}>
             <cylinderGeometry args={[5, 5, 60, 12]} />
             <meshBasicMaterial color="#ff3b30" />
           </mesh>
           <Html position={toThree(estimate.x, estimate.y, ground(estimate.x, estimate.y) + 60)} center zIndexRange={[15, 11]} style={{ pointerEvents: "none" }}>
             <div className="flex flex-col items-center">
-              <span className="grid size-9 animate-pulse place-items-center rounded-full border-2 border-white bg-red-600 shadow-lg">
+              <span className={`grid size-9 place-items-center rounded-full border-2 border-white shadow-lg ${old ? "bg-[#7a4a44]" : "animate-pulse bg-red-600"}`}>
                 <svg viewBox="0 0 24 24" className="size-5 text-white" fill="currentColor" aria-hidden="true">
                   <path d="M12 2c1 3.5 5 6 5 11a5 5 0 0 1-10 0c0-2.4 1.2-4.1 2.6-5.4.2 1.7 1 2.8 2.2 3.4C11.2 8.6 11 5.2 12 2Z" />
                 </svg>
               </span>
               <span className="mt-0.5 whitespace-nowrap rounded bg-black/70 px-1.5 py-0.5 font-mono text-[0.65rem] text-white">
-                FIRE ESTIMATE{estimate.anySmoke ? " (smoke)" : ""} ±{Math.round(estimate.ellipse.major)} m
+                {old ? `LAST ESTIMATE ${new Date(stored.estimatedAt).toLocaleString()}` : "FIRE ESTIMATE"}{estimate.anySmoke ? " (smoke)" : ""} ±{Math.round(estimate.ellipse.major)} m
               </span>
             </div>
           </Html>
@@ -266,7 +270,7 @@ function TriangulationLayer({ live, ground }) {
   );
 }
 
-const Scene = memo(function Scene({ twin, buildings, visible, colorMode, flyTarget, selected, selectedBrgy, hoverBrgy, cams, openCamIds, onOpenCam, onCloseCam, detecting, onDetResult, live, wind, autoOrbit, onPick, onHover }) {
+const Scene = memo(function Scene({ twin, buildings, visible, colorMode, flyTarget, selected, selectedBrgy, hoverBrgy, cams, openCamIds, onOpenCam, onCloseCam, detecting, onDetResult, live, wind, autoOrbit, onPick, onHover, admin }) {
   const buildingsRef = useRef();
   const terrainRef = useRef();
 
@@ -342,7 +346,7 @@ const Scene = memo(function Scene({ twin, buildings, visible, colorMode, flyTarg
 
       {visible.cameras && cams.map((c) => (
         <CameraMark key={c.id} cam={c} ground={twin.ground} open={openCamIds.includes(c.id)} onOpen={onOpenCam} onClose={onCloseCam}
-          detecting={detecting} onDetResult={onDetResult} />
+          detecting={detecting} onDetResult={onDetResult} admin={admin} />
       ))}
       {visible.triangulation && live && <TriangulationLayer live={live} ground={twin.ground} />}
       {visible.wind && wind && <WindParticles wind={wind} twin={twin} />}

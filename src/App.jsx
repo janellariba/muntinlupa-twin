@@ -2,9 +2,12 @@
 // Loads the city data, builds the 3D geometry, and lays out the interface:
 //   lg and up (laptop, PC, big screen): left sidebar + weather card top-right + building card bottom-right
 //   below lg (phone, tablet): top bar + bottom sheet with tabs (Weather, Places, Layers, Cameras)
-// Cameras: added in the Camera config card (lat, lon, webcam index), shown as marks; a mark opens
-// a popup with that webcam's stream.
-import { useCallback, useEffect, useMemo, useState } from "react";
+// Two modes, same 3D city:
+//   twin  (/)      : read only. Cameras, latest snapshots and the latest fire estimate come from the
+//                    database every LOGGING.twinRefreshS s. No camera config or detection card.
+//   admin (/admin) : after the admin password. Camera config (saved to the database), webcam streams,
+//                    fire/smoke detection, triangulation, snapshot + estimate logging, manual recording.
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import TwinScene, { WIND_SPEEDUP } from "./components/TwinScene";
 import WeatherCard, { useWeather, WeatherSummary } from "./components/WeatherCard";
 import { TitleBlock, LayersPanel, ColorPanel, PlacesPanel, BuildingInfo } from "./components/Panels";
@@ -13,7 +16,16 @@ import DetectionPanel from "./components/DetectionPanel";
 import { loadModel, restoreModel, forgetModel } from "./lib/detector";
 import { liveTriangulation, pickBox } from "./lib/liveTriangulation";
 import { buildTwin, toThree, findBarangay } from "./lib/twinGeometry";
-import { loadCameras, saveCameras, placeCamera, validateCamera } from "./lib/cameraConfig";
+import { loadCameras, markImported, placeCamera, validateCamera } from "./lib/cameraConfig";
+import { AdminBar, RecordingsPanel, ImportCard, CameraList, savedFolder } from "./components/AdminPanels";
+import { useTwinStatus } from "./lib/useTwinStatus";
+import { storedToLive } from "./lib/storedEstimate";
+import { api } from "./lib/api";
+import { LOGGING, ACTIVE_ESTIMATE_S } from "./lib/detectionConfig";
+
+// Twin page: a camera counts as "detecting now" while its latest saved snapshot is newer than
+// 2 x snapshotIntervalS (snapshots are saved every snapshotIntervalS while it sees fire/smoke).
+const DETECTING_NOW_S = 2 * LOGGING.snapshotIntervalS;
 
 const FILES = ["terrain", "roads", "buildings", "barangays"];
 const CITY = { name: "Muntinlupa City", x: 0, y: 0 }; // 0,0 = DEM centre
@@ -35,7 +47,7 @@ function framing(kind, panels) {
   return portrait ? { dx: 0, dy: -300, dist: 3600, dir: [0.06, 0.86, 0.5] } : { dx: 0, dy: 0, dist: 2600, dir: [0.45, 0.75, 0.5] };
 }
 
-export default function App() {
+export default function App({ admin = false, onLogout }) {
   const [data, setData] = useState(null);
   const [loaded, setLoaded] = useState(0);
   const [error, setError] = useState("");
@@ -54,7 +66,11 @@ export default function App() {
   const [selectedBrgy, setSelectedBrgy] = useState(null); // clicked / flown-to barangay (amber outline)
   const [hoverBrgy, setHoverBrgy] = useState(null);       // barangay under the mouse (white outline)
   const [cursor, setCursor] = useState(null);
-  const [camConfigs, setCamConfigs] = useState(loadCameras); // saved: { id, name, lat, lon, index }
+  const status = useTwinStatus();                              // database: cameras, latest snapshots, estimate
+  const camConfigs = status.cameras;                           // { id, name, lat, lon, index, heading, fov }
+  const [localCams, setLocalCams] = useState(() => (admin ? loadCameras() : []));
+  const [folder, setFolder] = useState(null);                  // admin: recordings folder on this laptop
+  const [recVersion, setRecVersion] = useState(0);
   const [openCamIds, setOpenCamIds] = useState([]);           // cameras whose stream popups are open (several at once)
   const [model, setModel] = useState({ status: "none" });     // fire/smoke model: none | loading | ready | error
   const [detectOn, setDetectOn] = useState(true);
@@ -151,13 +167,36 @@ export default function App() {
     maxElev: data ? Math.round(data.terrain.meta.dem.max) : null,
   };
 
-  // Cameras placed on the map (local meters + barangay), recomputed from the saved lat/lon.
-  const cams = useMemo(() => (twin ? camConfigs.map((c) => placeCamera(c, twin)) : []), [twin, camConfigs]);
-  const updateCams = (fn) => setCamConfigs((list) => { const next = fn(list); saveCameras(next); return next; });
-  const saveCam = (cam) => updateCams((list) => (list.some((c) => c.id === cam.id) ? list.map((c) => (c.id === cam.id ? cam : c)) : [...list, cam]));
+  // Cameras placed on the map (local meters + barangay), recomputed from the saved lat/lon,
+  // plus each camera's latest saved detection (twin page popups and red marks).
+  // Which cameras count as detecting now; a string so the map only re-renders when it changes.
+  const detectingKey = admin ? "" : camConfigs.filter((c) => status.ageS(status.latest[c.id]?.detectedAt) < DETECTING_NOW_S).map((c) => c.id).join(",");
+  const cams = useMemo(() => (twin ? camConfigs.map((c) => {
+    const d = status.latest[c.id], age = d ? status.ageS(d.detectedAt) : Infinity;
+    return { ...placeCamera(c, twin), lastDet: d ?? null, lastDetAgeS: age, detectingNow: detectingKey.split(",").includes(c.id) };
+  }) : []), [twin, camConfigs, status.latest, status.ageS, detectingKey]);
+  const fields = ({ name, lat, lon, index, heading, fov }) => ({ name, lat, lon, index, heading, fov });
+  const saveCam = async (cam, editingId) => {
+    if (editingId) await api.updateCamera(editingId, fields(cam)); else await api.addCamera(fields(cam));
+    await status.refresh();
+  };
   const openCam = useCallback((id) => setOpenCamIds((ids) => (ids.includes(id) ? ids : [...ids, id])), []);
   const closeCam = useCallback((id) => setOpenCamIds((ids) => ids.filter((x) => x !== id)), []);
-  const removeCam = (id) => { updateCams((list) => list.filter((c) => c.id !== id)); closeCam(id); };
+  const removeCam = async (id) => { await api.removeCamera(id); closeCam(id); await status.refresh(); };
+  // A camera removed on another device: close its popup here.
+  useEffect(() => { setOpenCamIds((ids) => { const keep = ids.filter((id) => camConfigs.some((c) => c.id === id)); return keep.length === ids.length ? ids : keep; }); }, [camConfigs]);
+  // One-time copy of cameras that were saved in this browser before the database existed.
+  const importLocal = async () => {
+    const failed = [];
+    for (const c of localCams) {
+      try { await api.addCamera(fields(c)); }
+      catch (e) { if (e.status !== 409) failed.push(`${c.name}: ${e.message}`); } // 409 = already in the database
+    }
+    await status.refresh();
+    if (failed.length) return `Not imported: ${failed.join("; ")}`;
+    markImported(); setLocalCams([]);
+    return "";
+  };
   const showCam = (c) => {
     setVisible((v) => ({ ...v, cameras: true }));
     fly(c.x, c.y, "place");
@@ -169,6 +208,7 @@ export default function App() {
 
   // ---- Fire/smoke detection (model in this browser) and live triangulation ----
   useEffect(() => {
+    if (!admin) return; // detection runs only in the admin console
     let alive = true;
     setModel({ status: "loading" });
     restoreModel().then((info) => alive && setModel(info ? { status: "ready", info } : { status: "none" }));
@@ -191,13 +231,41 @@ export default function App() {
       return box ? { ...h, [id]: { box, W: r.W, H: r.H, t: Date.now() } } : h;     // keep the last hit for the window
     });
   }, []);
-  const detecting = model.status === "ready" && detectOn;
+  const detecting = admin && model.status === "ready" && detectOn;
   useEffect(() => { if (!detecting) setHits({}); }, [detecting]);
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
-  const live = useMemo(
+  const liveAdmin = useMemo(
     () => (twin && detecting ? liveTriangulation(cams, hits, now, twin.meta.origin_utm) : null),
     [twin, detecting, cams, hits, now]
   );
+  // Admin: save the estimate when it first appears, then at most every LOGGING.estimateIntervalS.
+  const lastEstimateSave = useRef(0);
+  const [estimateMsg, setEstimateMsg] = useState(null);
+  useEffect(() => {
+    const est = liveAdmin?.estimate, res = liveAdmin?.result;
+    if (!est || Date.now() - lastEstimateSave.current < LOGGING.estimateIntervalS * 1000) return;
+    lastEstimateSave.current = Date.now();
+    api.saveEstimate({
+      lat: est.lat, lon: est.lon, ellipseMajor: est.ellipse.major, ellipseMinor: est.ellipse.minor, ellipseOrient: est.ellipse.orientDeg,
+      maxRayAngle: res.maxRayAngleDeg, residualRms: res.residualRmsDeg, usesSmoke: est.anySmoke,
+      rays: liveAdmin.rays.map((r) => {
+        const c = cams.find((k) => k.id === r.id);
+        return { camera_id: r.id, camera_name: r.name, bearing_deg: r.bearing, from_smoke: r.fromSmoke, lat: c?.lat, lon: c?.lon };
+      }),
+    })
+      .then(() => setEstimateMsg({ ok: true, text: `Estimate saved ${new Date().toLocaleTimeString()}` }))
+      .catch((e) => setEstimateMsg({ ok: false, text: `Estimate not saved: ${e.message}` }));
+  }, [liveAdmin, cams]);
+  // Twin: the latest saved estimate. ACTIVE while newer than ACTIVE_ESTIMATE_S, otherwise shown dimmed as the last one.
+  const estimateActive = !!status.estimate && status.ageS(status.estimate.estimatedAt) < ACTIVE_ESTIMATE_S; // re-checked every second (App ticks)
+  const liveStored = useMemo(() => {
+    if (admin || !twin || !status.estimate) return null;
+    return storedToLive(status.estimate, camConfigs, twin.meta.origin_utm, estimateActive);
+  }, [admin, twin, status.estimate, camConfigs, estimateActive]);
+  const live = admin ? liveAdmin : liveStored;
+  useEffect(() => { if (admin) savedFolder().then((f) => f && setFolder(f)); }, [admin]);
+  const onRecorded = useCallback(() => setRecVersion((v) => v + 1), []);
+  const adminTools = useMemo(() => (admin ? { folder, onRecorded } : null), [admin, folder, onRecorded]);
   useEffect(() => { if (!visible.cameras) setOpenCamIds([]); }, [visible.cameras]);
 
   const toggle = (k) => setVisible((v) => ({ ...v, [k]: !v[k] }));
@@ -209,13 +277,20 @@ export default function App() {
     places: twin && <PlacesPanel labels={twin.labels} current={place.label} onPlace={goPlace} onOverview={overview} autoOrbit={autoOrbit} onOrbit={() => setAutoOrbit((o) => !o)} />,
     detection: (
       <DetectionPanel model={model} onLoadFile={onLoadModelFile} onForget={onForgetModel} detectOn={detectOn}
-        onToggleDetect={() => setDetectOn((d) => !d)} live={live} openCount={openCamIds.length} />
+        onToggleDetect={() => setDetectOn((d) => !d)} live={liveAdmin} openCount={openCamIds.length} saveMsg={estimateMsg} />
     ),
-    cameras: twin && (
-      <CameraConfig cameras={cams} onSave={saveCam} onRemove={removeCam} onShow={showCam}
-        openIds={openCamIds} onOpenAll={openAllCams} onCloseAll={closeAllCams}
-        validate={(form, editingId) => validateCamera(form, twin, camConfigs, editingId)} />
-    ),
+    adminBar: <AdminBar onLogout={onLogout} dbError={status.error} />,
+    recordings: <RecordingsPanel folder={folder} onFolder={setFolder} version={recVersion} />,
+    cameras: twin && (admin ? (
+      <div className="grid gap-2">
+        <ImportCard local={localCams} onImport={importLocal} />
+        <CameraConfig cameras={cams} onSave={saveCam} onRemove={removeCam} onShow={showCam}
+          openIds={openCamIds} onOpenAll={openAllCams} onCloseAll={closeAllCams}
+          validate={(form, editingId) => validateCamera(form, twin, camConfigs, editingId)} />
+      </div>
+    ) : (
+      <CameraList cameras={cams} onShow={showCam} openIds={openCamIds} error={status.error} loaded={status.loaded} />
+    )),
     weather: <WeatherCard place={weatherPlace} w={weather} />,
     info: <BuildingInfo info={info} types={twin?.meta.building_types ?? []} heightSources={heightSources} onClose={() => setPickedTri(null)} />,
   };
@@ -240,6 +315,7 @@ export default function App() {
         detecting={detecting}
         onDetResult={onDetResult}
         live={live}
+        admin={adminTools}
         wind={wind}
         autoOrbit={autoOrbit}
         onPick={onPick}
@@ -268,12 +344,14 @@ export default function App() {
       {/* ===== Laptop / PC / big screen ===== */}
       {showSide ? (
       <aside className="scroll-thin absolute inset-y-4 left-4 z-20 hidden w-80 flex-col gap-3 overflow-y-auto pr-1 lg:flex 2xl:w-96">
+        {admin && <div className="panel p-3">{panels.adminBar}</div>}
         <div className="panel p-4"><TitleBlock stats={stats} onHide={() => toggleSide(false)} /></div>
         <div className="panel p-4">{panels.layers}</div>
         <div className="panel p-4">{panels.color}</div>
         <div className="panel p-4">{panels.places}</div>
         <div className="panel p-4">{panels.cameras}</div>
-        <div className="panel p-4">{panels.detection}</div>
+        {admin && <div className="panel p-4">{panels.detection}</div>}
+        {admin && <div className="panel p-4">{panels.recordings}</div>}
       </aside>
       ) : (
         <button className="panel absolute left-4 top-4 z-20 hidden items-center gap-2 px-3 py-2 text-sm hover:border-accent lg:flex"
@@ -334,7 +412,9 @@ export default function App() {
             </nav>
             <div id="sheet-body" className="scroll-thin min-h-0 flex-1 overflow-y-auto p-4" role="tabpanel">
               {tab === "layers" ? <div className="grid gap-5">{panels.layers}{panels.color}</div>
-                : tab === "cameras" ? <div className="grid gap-5">{panels.cameras}{panels.detection}</div>
+                : tab === "cameras" ? (admin
+                  ? <div className="grid gap-5">{panels.adminBar}{panels.cameras}{panels.detection}{panels.recordings}</div>
+                  : panels.cameras)
                 : panels[tab]}
             </div>
           </>

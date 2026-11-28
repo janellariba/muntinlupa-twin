@@ -3,18 +3,35 @@
 // When a fire/smoke model is loaded, it runs detection on this stream (DETECTION.runsPerSecond),
 // draws the boxes over the video and reports each result to the app for triangulation.
 // The webcam is opened when the popup opens and released when it closes.
+// Admin console only: saves a snapshot (annotated JPEG + detection + bearing) to the database at most
+// every LOGGING.snapshotIntervalS per camera while it sees fire/smoke, and has a manual Record button
+// (saved on this laptop, auto-stop after LOGGING.maxRecordingS).
 import { useEffect, useRef, useState } from "react";
 import { openCamera, stopStream } from "../lib/webcam";
 import { detect } from "../lib/detector";
-import { DETECTION } from "../lib/detectionConfig";
+import { DETECTION, LOGGING } from "../lib/detectionConfig";
+import { pickBox } from "../lib/liveTriangulation";
+import { pixelToBearing } from "../lib/triangulation";
+import { annotatedJpeg } from "../lib/snapshot";
+import { startRecording } from "../lib/recorder";
+import { api } from "../lib/api";
 
 const isFire = (name) => /fire|flame/i.test(name);
+const lastSnapshot = new Map(); // camId -> time of the last saved snapshot (kept if the popup is reopened)
+const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-export default function CameraPopup({ cam, onClose, detecting, onResult }) {
+export default function CameraPopup({ cam, onClose, detecting, onResult, admin }) {
   const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const recRef = useRef(null);
   const [state, setState] = useState({ status: "opening" });
   const [det, setDet] = useState(null);       // last detection run { dets, W, H, ms }
   const [detError, setDetError] = useState("");
+  const [saveMsg, setSaveMsg] = useState(null); // { ok, text, t }
+  const [rec, setRec] = useState(null);         // { startedAt, mode } while recording
+  const [recMsg, setRecMsg] = useState(null);   // { ok, text }
+  const [, tick] = useState(0);
+  const camRef = useRef(cam); camRef.current = cam;
 
   useEffect(() => {
     let stream = null, cancelled = false;
@@ -22,13 +39,41 @@ export default function CameraPopup({ cam, onClose, detecting, onResult }) {
     openCamera(cam.index)
       .then((res) => {
         if (cancelled) { stopStream(res.stream); return; }
-        stream = res.stream;
+        stream = res.stream; streamRef.current = stream;
         if (videoRef.current) videoRef.current.srcObject = stream;
         setState({ status: "live", label: res.label });
       })
       .catch((e) => !cancelled && setState({ status: "error", message: e.message }));
-    return () => { cancelled = true; stopStream(stream); };
+    return () => {
+      cancelled = true;
+      recRef.current?.stop(); // closing the popup ends a recording (the file is still saved)
+      streamRef.current = null;
+      stopStream(stream);
+    };
   }, [cam.index, cam.id]);
+
+  // Save one snapshot per LOGGING.snapshotIntervalS while this camera sees fire or smoke.
+  const maybeSave = (r) => {
+    if (!admin) return;
+    const box = pickBox(r.dets);
+    if (!box) return;
+    const now = Date.now();
+    if (now - (lastSnapshot.get(cam.id) ?? 0) < LOGGING.snapshotIntervalS * 1000) return;
+    lastSnapshot.set(cam.id, now);
+    const c = camRef.current;
+    const bearing = c.heading != null && c.fov != null ? pixelToBearing(box.cx, r.W, c.heading, c.fov) : null;
+    let jpeg;
+    try { jpeg = annotatedJpeg(videoRef.current, r.dets, c.name); } catch { jpeg = undefined; }
+    api.saveDetection({
+      cameraId: c.id, className: box.name, confidence: box.conf,
+      bbox: { x1: box.x1, y1: box.y1, x2: box.x2, y2: box.y2, cx: box.cx },
+      frameW: r.W, frameH: r.H, allBoxes: r.dets.map(({ name, conf, x1, y1, x2, y2 }) => ({ name, conf, x1, y1, x2, y2 })),
+      bearing, fromSmoke: box.fromSmoke, jpeg,
+    })
+      .then(() => setSaveMsg({ ok: true, text: "Snapshot saved", t: Date.now() }))
+      .catch((e) => setSaveMsg({ ok: false, text: `Snapshot not saved: ${e.message}`, t: Date.now() }));
+  };
+  const saveRef = useRef(maybeSave); saveRef.current = maybeSave;
 
   // Detection loop: one run at a time per camera, at most DETECTION.runsPerSecond.
   useEffect(() => {
@@ -38,12 +83,40 @@ export default function CameraPopup({ cam, onClose, detecting, onResult }) {
       if (busy || !videoRef.current?.videoWidth) return;
       busy = true;
       detect(videoRef.current)
-        .then((r) => { if (alive && r) { setDet(r); setDetError(""); onResult?.(cam.id, r); } })
+        .then((r) => { if (alive && r) { setDet(r); setDetError(""); onResult?.(cam.id, r); saveRef.current(r); } })
         .catch((e) => alive && setDetError(e.message || String(e)))
         .finally(() => { busy = false; });
     }, 1000 / DETECTION.runsPerSecond);
     return () => { alive = false; clearInterval(id); onResult?.(cam.id, null); };
   }, [detecting, state.status, cam.id, onResult]);
+
+  // Recording: timer display + a warning if the tab is closed mid-recording.
+  useEffect(() => {
+    if (!rec) return;
+    const t = setInterval(() => tick((n) => n + 1), 1000);
+    const warn = (e) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => { clearInterval(t); window.removeEventListener("beforeunload", warn); };
+  }, [rec]);
+
+  const toggleRecord = async () => {
+    if (recRef.current) { recRef.current.stop(); return; }
+    if (!streamRef.current) return;
+    setRecMsg(null);
+    try {
+      const r = await startRecording(streamRef.current, cam.name, admin?.folder);
+      recRef.current = r;
+      setRec({ startedAt: Date.now(), mode: r.mode });
+      r.done
+        .then((meta) => api.logRecording({ cameraId: cam.id, ...meta })
+          .then(() => setRecMsg({ ok: true, text: `Saved ${meta.fileName}${meta.mode === "folder" ? " in your recordings folder" : " to Downloads"}` }))
+          .catch((e) => setRecMsg({ ok: false, text: `Video saved as ${meta.fileName}, but not logged: ${e.message}` }))
+          .finally(() => admin?.onRecorded?.()))
+        .catch((e) => setRecMsg({ ok: false, text: e.message }))
+        .finally(() => { recRef.current = null; setRec(null); });
+    } catch (e) { setRecMsg({ ok: false, text: e.message }); }
+  };
+  const recS = rec ? (Date.now() - rec.startedAt) / 1000 : 0;
 
   useEffect(() => {
     // Esc closes the most recently opened popup only (popups are stacked in opening order).
@@ -91,6 +164,11 @@ export default function CameraPopup({ cam, onClose, detecting, onResult }) {
             <span className="mr-1 inline-block size-1.5 rounded-full bg-red-500 align-middle" />LIVE
           </span>
         )}
+        {rec && (
+          <span className="absolute bottom-2 left-2 rounded bg-red-600/90 px-1.5 py-0.5 font-mono text-[0.65rem] font-semibold tabular-nums">
+            ● REC {clock(recS)} / {clock(LOGGING.maxRecordingS)}
+          </span>
+        )}
         {top && (
           <span className="absolute right-2 top-2 animate-pulse rounded bg-red-600/90 px-1.5 py-0.5 font-mono text-[0.65rem] font-semibold uppercase">
             {top.name} {Math.round(top.conf * 100)}%
@@ -107,6 +185,17 @@ export default function CameraPopup({ cam, onClose, detecting, onResult }) {
         {detecting && <span className="shrink-0">{det ? `AI ${Math.round(det.ms)} ms` : "AI …"}</span>}
       </div>
       {detError && <p className="px-3 pb-2 text-[0.68rem] text-[#f2a0a0]">Detection error: {detError}</p>}
+      {admin && (
+        <div className="grid gap-1 border-t border-line px-3 py-2 text-[0.68rem]">
+          <button type="button" className={`chip py-1 ${rec ? "!border-red-500 text-red-300" : ""}`} onClick={toggleRecord}
+            disabled={state.status !== "live" && !rec} aria-pressed={!!rec}>
+            {rec ? "■ Stop recording" : "● Record"}
+          </button>
+          {rec && <span className="text-muted">{rec.mode === "folder" ? "Writing to your recordings folder" : "Kept in memory, downloads when you stop"}. Stops by itself after {LOGGING.maxRecordingS / 60} min.</span>}
+          {recMsg && <span className={recMsg.ok ? "text-muted" : "text-[#f2a0a0]"}>{recMsg.text}</span>}
+          {saveMsg && <span className={saveMsg.ok ? "text-muted" : "text-[#f2a0a0]"}>{saveMsg.text} {new Date(saveMsg.t).toLocaleTimeString()}</span>}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 // CameraConfig.jsx
 // "Camera config" card: add a camera by latitude, longitude and webcam index; list, edit,
-// show and remove saved cameras. Cameras are saved in this browser.
+// show and remove saved cameras. Cameras are saved in the database (admin console), so every device
+// that opens the twin sees them.
 import { useState } from "react";
 import { H2 } from "./Panels";
 import { MAX_INDEX } from "../lib/cameraConfig";
@@ -18,12 +19,21 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const submit = (e) => {
+  const [busy, setBusy] = useState(false);
+  const submit = async (e) => {
     e.preventDefault();
     const res = validate(form, editingId);
     if (res.error) { setError(res.error); return; }
-    onSave(res.cam);
-    setForm(EMPTY); setEditingId(null); setError("");
+    setBusy(true);
+    try {
+      await onSave(res.cam, editingId);
+      setForm(EMPTY); setEditingId(null); setError("");
+    } catch (err) { setError(err.message); }
+    finally { setBusy(false); }
+  };
+  const remove = async (c) => {
+    if (!window.confirm(`Remove camera "${c.name}"? Its saved snapshots and estimates are kept.`)) return;
+    try { await onRemove(c.id); setError(""); } catch (err) { setError(err.message); }
   };
 
   const edit = (c) => {
@@ -99,7 +109,7 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
 
         {error && <p role="alert" className="text-xs text-[#f2a0a0]">{error}</p>}
         <div className="flex gap-1.5">
-          <button type="submit" className="chip flex-1" aria-pressed="true">{editingId ? "Save changes" : "Add camera"}</button>
+          <button type="submit" className="chip flex-1" aria-pressed="true" disabled={busy}>{busy ? "Saving…" : editingId ? "Save changes" : "Add camera"}</button>
           {editingId && <button type="button" className="chip" onClick={() => { setEditingId(null); setForm(EMPTY); setError(""); }}>Cancel</button>}
         </div>
       </form>
@@ -131,7 +141,7 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
                 <div className="mt-1.5 flex gap-1.5">
                   <button type="button" className="chip flex-1 py-1" aria-pressed={openIds.includes(c.id)} onClick={() => onShow(c)}>Show</button>
                   <button type="button" className="chip flex-1 py-1" onClick={() => edit(c)}>Edit</button>
-                  <button type="button" className="chip flex-1 py-1" onClick={() => onRemove(c.id)}>Remove</button>
+                  <button type="button" className="chip flex-1 py-1" onClick={() => remove(c)}>Remove</button>
                 </div>
               </li>
             ))}
@@ -139,7 +149,7 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
           </>
         )}
         <p className="mt-2 text-[0.7rem] leading-snug text-muted">
-          Saved in this browser only. The stream opens the webcam with that index on the device viewing this page.
+          Saved in the database: the twin page on any device shows these cameras. The stream opens the webcam with that index on this admin device.
         </p>
       </div>
     </div>

@@ -2,9 +2,9 @@
 // "Detection & triangulation" card: load the fire/smoke model, switch detection on/off, and see each
 // open camera's detection, its bearing, and the triangulation result.
 import { H2 } from "./Panels";
-import { DETECTION, TRIANGULATION } from "../lib/detectionConfig";
+import { DETECTION, TRIANGULATION, LOGGING } from "../lib/detectionConfig";
 
-export default function DetectionPanel({ model, onLoadFile, onForget, detectOn, onToggleDetect, live, openCount }) {
+export default function DetectionPanel({ model, onLoadFile, onForget, detectOn, onToggleDetect, live, openCount, saveMsg }) {
   const { observations = [], result, estimate } = live || {};
   return (
     <div>
@@ -87,7 +87,11 @@ export default function DetectionPanel({ model, onLoadFile, onForget, detectOn, 
         </div>
       )}
 
+      {saveMsg && <p className={`mt-1.5 text-[0.68rem] ${saveMsg.ok ? "text-muted" : "text-[#f2a0a0]"}`}>{saveMsg.text}</p>}
       <p className="mt-2 text-[0.65rem] leading-snug text-muted">
+        Saved to the database while detecting: 1 snapshot per camera every {LOGGING.snapshotIntervalS} s, the estimate when it appears then every {LOGGING.estimateIntervalS} s (approved 2026-11-28).
+      </p>
+      <p className="mt-1 text-[0.65rem] leading-snug text-muted">
         TEMPORARY values (approved 2026-11-27): confidence {DETECTION.confThreshold} · {DETECTION.runsPerSecond} runs/s per camera ·
         {" "}{DETECTION.combineWindowS} s window · min angle {TRIANGULATION.minRayAngleDeg}° · max range {TRIANGULATION.maxRangeM / 1000} km ·
         bearing error {TRIANGULATION.bearingSigmaDeg}° · pinhole bearing model. Assumes one fire at a time.
