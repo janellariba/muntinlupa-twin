@@ -61,3 +61,13 @@ export function validateCamera(form, twin, existing, editingId) {
   if (existing.some((c) => c.id !== editingId && c.name.toLowerCase() === name.toLowerCase())) return { error: `There is already a camera named "${name}".` };
   return { cam: { id: editingId || `cam-${Date.now().toString(36)}`, name, lat, lon, index, heading, fov } };
 }
+
+/* Cameras whose live video was stopped with "Stop live" on this admin laptop. Every other camera,
+   including a newly added one, goes live automatically. Kept across reloads in this browser. */
+const LIVE_OFF_KEY = "twin.liveOff.v1";
+export function loadLiveOff() {
+  try { const v = JSON.parse(localStorage.getItem(LIVE_OFF_KEY) || "[]"); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+export function saveLiveOff(ids) {
+  try { localStorage.setItem(LIVE_OFF_KEY, JSON.stringify(ids)); } catch { /* storage unavailable: resets on reload */ }
+}

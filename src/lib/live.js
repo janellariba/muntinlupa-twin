@@ -26,10 +26,12 @@ export async function publish(cameraId, stream, onDrop) {
   const track = stream.getVideoTracks()[0];
   if (!track) throw new Error("No video to send.");
   const pc = new RTCPeerConnection({ iceServers: ICE, bundlePolicy: "max-bundle" });
+  let sessionId = null;
   try {
     const tr = pc.addTransceiver(track, { direction: "sendonly" });
     await pc.setLocalDescription(await pc.createOffer());
     const r = await api.livePublish({ cameraId, sdp: pc.localDescription.sdp, mid: tr.mid });
+    sessionId = r.sessionId;
     await pc.setRemoteDescription(r.sessionDescription);
     try { // limit upload per camera (LIVE.maxBitrateKbps)
       const p = tr.sender.getParameters();
@@ -44,12 +46,12 @@ export async function publish(cameraId, stream, onDrop) {
     if (!closed && ["failed", "disconnected", "closed"].includes(pc.connectionState)) onDrop?.();
   });
   return {
-    pc,
+    pc, sessionId,
     close() {
       if (closed) return;
       closed = true;
       pc.close();
-      api.liveStop(cameraId).catch(() => {}); // best effort; otherwise the server sees no heartbeat
+      api.liveStop(cameraId, sessionId).catch(() => {}); // best effort; otherwise the server sees no heartbeat
     },
   };
 }

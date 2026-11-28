@@ -35,7 +35,7 @@ export const api = {
   savePreview: (cameraId, jpeg) => call("POST", "/api/events", { type: "preview", cameraId, jpeg }),
   livePublish: (b) => call("POST", "/api/live?action=publish", b),
   liveHeartbeat: (cameraIds) => call("POST", "/api/live?action=heartbeat", { cameraIds }),
-  liveStop: (cameraId) => call("POST", "/api/live?action=stop", { cameraId }, true), // keepalive: still sent if the tab closes
+  liveStop: (cameraId, sessionId) => call("POST", "/api/live?action=stop", { cameraId, sessionId }, true), // keepalive: still sent if the tab closes
   liveView: (cameraId) => call("POST", "/api/live?action=view", { cameraId }),
   liveAnswer: (b) => call("POST", "/api/live?action=answer", b),
   recordings: () => call("GET", "/api/recordings"),

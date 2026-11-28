@@ -5,6 +5,7 @@ import { H2 } from "./Panels";
 import { api } from "../lib/api";
 import { folderSupported, chooseFolder, savedFolder } from "../lib/recorder";
 import { agoText } from "../lib/useTwinStatus";
+import { LIVE } from "../lib/detectionConfig";
 
 const field = "mt-1 w-full rounded-md border border-line bg-[#0f191d] px-2.5 py-1.5 text-sm text-ink focus:border-accent focus:outline-none";
 
@@ -155,7 +156,7 @@ export function CameraList({ cameras, onShow, openIds, error, loaded, viewer }) 
                 aria-pressed={openIds.includes(c.id)} onClick={() => onShow(c)}>
                 <div className="flex items-baseline justify-between gap-2">
                   <b className="truncate text-sm">{c.name}{" "}
-                    <span className={`ml-1 rounded px-1 font-mono text-[0.6rem] font-normal ${c.live ? "bg-red-600/90 text-white" : "border border-line text-muted"}`}>{c.live ? "LIVE" : "OFFLINE"}</span>
+                    <span className={`ml-1 rounded px-1 font-mono text-[0.6rem] font-normal ${c.live ? "bg-red-600/90 text-white" : "border border-line text-muted"}`}>{c.live ? "LIVE" : c.previewAgeS < 2 * LIVE.previewIntervalS ? "LIVE OFF" : "OFFLINE"}</span>
                   </b>
                   {c.detectingNow
                     ? <span className="shrink-0 animate-pulse font-mono text-red-400">{c.lastDet.className} {Math.round(c.lastDet.confidence * 100)}%</span>

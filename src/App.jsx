@@ -16,7 +16,7 @@ import DetectionPanel from "./components/DetectionPanel";
 import { loadModel, restoreModel, forgetModel } from "./lib/detector";
 import { liveTriangulation, pickBox } from "./lib/liveTriangulation";
 import { buildTwin, toThree, findBarangay } from "./lib/twinGeometry";
-import { loadCameras, markImported, placeCamera, validateCamera } from "./lib/cameraConfig";
+import { loadCameras, markImported, placeCamera, validateCamera, loadLiveOff, saveLiveOff } from "./lib/cameraConfig";
 import { AdminBar, RecordingsPanel, ImportCard, CameraList, savedFolder } from "./components/AdminPanels";
 import { useTwinStatus } from "./lib/useTwinStatus";
 import { storedToLive } from "./lib/storedEstimate";
@@ -73,6 +73,11 @@ export default function App({ admin = false, onLogout }) {
   const [localCams, setLocalCams] = useState(() => (admin ? loadCameras() : []));
   const [folder, setFolder] = useState(null);                  // admin: recordings folder on this laptop
   const [recVersion, setRecVersion] = useState(0);
+  const [liveOff, setLiveOff] = useState(() => (admin ? loadLiveOff() : [])); // camera ids with live stopped
+  const setLive = useCallback((ids, on) => setLiveOff((prev) => {
+    const next = on ? prev.filter((x) => !ids.includes(x)) : [...new Set([...prev, ...ids])];
+    saveLiveOff(next); return next;
+  }), []);
   const [openCamIds, setOpenCamIds] = useState([]);           // cameras whose stream popups are open (several at once)
   const [model, setModel] = useState({ status: "none" });     // fire/smoke model: none | loading | ready | error
   const [detectOn, setDetectOn] = useState(true);
@@ -280,7 +285,7 @@ export default function App({ admin = false, onLogout }) {
     };
     const t = setInterval(beat, LIVE.heartbeatS * 1000);
     // Tab closed or laptop going away: mark the cameras offline right away (otherwise after offlineAfterS).
-    const bye = () => [...hub.all().entries()].filter(([, s]) => s.air?.status === "on").forEach(([id]) => api.liveStop(id).catch(() => {}));
+    const bye = () => [...hub.all().entries()].filter(([, s]) => s.air?.status === "on").forEach(([id, s]) => api.liveStop(id, s.air.sessionId).catch(() => {}));
     window.addEventListener("pagehide", bye);
     return () => { clearInterval(t); window.removeEventListener("pagehide", bye); };
   }, [admin]);
@@ -299,7 +304,7 @@ export default function App({ admin = false, onLogout }) {
     lock: async () => { await api.logout("viewer").catch(() => {}); api.session().then((r) => setViewerOk(!!r.viewer)).catch(() => setViewerOk(false)); },
   }), [viewerOk]);
   const onRecorded = useCallback(() => setRecVersion((v) => v + 1), []);
-  const adminTools = useMemo(() => (admin ? { folder, onRecorded } : null), [admin, folder, onRecorded]);
+  const adminTools = useMemo(() => (admin ? { folder, onRecorded, liveOff, setLive } : null), [admin, folder, onRecorded, liveOff, setLive]);
   useEffect(() => { if (!visible.cameras) setOpenCamIds([]); }, [visible.cameras]);
 
   const toggle = (k) => setVisible((v) => ({ ...v, [k]: !v[k] }));
@@ -318,7 +323,7 @@ export default function App({ admin = false, onLogout }) {
     cameras: twin && (admin ? (
       <div className="grid gap-2">
         <ImportCard local={localCams} onImport={importLocal} />
-        <CameraConfig cameras={cams} onSave={saveCam} onRemove={removeCam} onShow={showCam}
+        <CameraConfig cameras={cams} onSave={saveCam} onRemove={removeCam} onShow={showCam} liveOff={liveOff} onSetLive={setLive}
           openIds={openCamIds} onOpenAll={openAllCams} onCloseAll={closeAllCams}
           validate={(form, editingId) => validateCamera(form, twin, camConfigs, editingId)} />
       </div>
@@ -357,7 +362,7 @@ export default function App({ admin = false, onLogout }) {
 
       {/* Admin: every camera runs in the background (stream, live, detection, previews, recording). */}
       {admin && twin && cams.map((c) => (
-        <CameraRunner key={c.id} cam={c} detecting={detecting} onResult={onDetResult} folderRef={folderRef} onRecorded={onRecorded} />
+        <CameraRunner key={c.id} cam={c} detecting={detecting} liveOn={!liveOff.includes(c.id)} onResult={onDetResult} folderRef={folderRef} onRecorded={onRecorded} />
       ))}
 
       {/* Loading / error overlay */}

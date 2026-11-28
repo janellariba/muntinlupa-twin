@@ -3,7 +3,7 @@
 //
 //   POST ?action=publish   admin  { cameraId, sdp, mid }      -> laptop starts sending one camera
 //   POST ?action=heartbeat admin  { cameraIds: [...] }        -> "these cameras are still streaming"
-//   POST ?action=stop      admin  { cameraId }                -> camera stopped streaming
+//   POST ?action=stop      admin  { cameraId, sessionId }     -> that stream stopped (ignored if a newer one started)
 //   POST ?action=view      viewer { cameraId }                -> viewer session + offer to receive it
 //   POST ?action=answer    viewer { sessionId, token, sdp }   -> viewer's answer completes the connection
 //
@@ -61,7 +61,7 @@ const actions = {
       tracks: [{ location: "local", mid: String(b.mid), trackName }],
     });
     await q("update twin_cameras set live_session=$2, live_track=$3, live_at=now() where id=$1", [cam.id, sessionId, trackName]);
-    return { sessionDescription: r.sessionDescription };
+    return { sessionDescription: r.sessionDescription, sessionId };
   },
   async heartbeat(req, b) {
     requireAdmin(req);
@@ -71,7 +71,8 @@ const actions = {
   },
   async stop(req, b) {
     requireAdmin(req);
-    await q("update twin_cameras set live_session=null, live_track=null, live_at=null where id=$1", [b.cameraId]);
+    // Only clear the stream it belongs to: a reloaded page may already have started a newer one.
+    await q("update twin_cameras set live_session=null, live_track=null, live_at=null where id=$1 and live_session=$2", [b.cameraId, String(b.sessionId ?? "")]);
     return { ok: true };
   },
   async view(req, b) {

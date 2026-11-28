@@ -1,13 +1,14 @@
 // CameraRunner.jsx (admin console, one per camera, no visible UI)
 // Starts automatically when a camera exists and the admin console is open:
 //   1. opens the webcam at the camera's index
-//   2. publishes it live to Cloudflare (retries every LIVE.heartbeatS if it drops)
+//   2. publishes it live to Cloudflare (retries every LIVE.heartbeatS if it drops), unless Stop live
+//      was pressed for it (then only live video stops; detection, previews and recording keep running)
 //   3. runs fire/smoke detection when a model is loaded, saving a snapshot every LOGGING.snapshotIntervalS
 //      while it sees fire/smoke
 //   4. uploads a preview picture every LIVE.previewIntervalS for viewers without the password
 //   5. records on request (Record button in the popup), saved on this laptop
 // State goes to cameraHub so popups and panels can show it.
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { openCamera, stopStream } from "../lib/webcam";
 import { detect } from "../lib/detector";
 import { DETECTION, LOGGING, LIVE } from "../lib/detectionConfig";
@@ -19,26 +20,50 @@ import { publish } from "../lib/live";
 import { hub } from "../lib/cameraHub";
 import { api } from "../lib/api";
 
-export default function CameraRunner({ cam, detecting, onResult, folderRef, onRecorded }) {
+export default function CameraRunner({ cam, detecting, liveOn, onResult, folderRef, onRecorded }) {
   const videoRef = useRef(null);
   const camRef = useRef(cam); camRef.current = cam;
   const streamRef = useRef(null);
   const lastDet = useRef(null);       // last detection run { dets, W, H, ms, t }
   const lastSnap = useRef(0);
   const recRef = useRef(null);
+  const [stream, setStream] = useState(null);
   const id = cam.id;
 
-  // 1 + 2. Webcam, then live publishing with automatic retry.
+  // 1. Webcam (stays open while the console is open; detection, previews and recording use it).
   useEffect(() => {
-    let stream = null, cancelled = false, pub = null, retry = null;
-    hub.set(id, { status: "opening", message: "", air: { status: "off" } });
+    let s = null, cancelled = false;
+    hub.set(id, { status: "opening", message: "" });
+    openCamera(cam.index)
+      .then((res) => {
+        if (cancelled) { stopStream(res.stream); return; }
+        s = res.stream; streamRef.current = s;
+        if (videoRef.current) videoRef.current.srcObject = s;
+        hub.set(id, { status: "live", label: res.label, stream: s });
+        setStream(s);
+      })
+      .catch((e) => !cancelled && hub.set(id, { status: "error", message: e.message }));
+    return () => {
+      cancelled = true;
+      recRef.current?.stop(); // the file is still saved
+      streamRef.current = null;
+      setStream(null);
+      stopStream(s);
+      hub.set(id, { status: "off", stream: null });
+    };
+  }, [id, cam.index]);
+
+  // 2. Live video to Cloudflare while liveOn (default on; Stop live turns it off), retrying if it drops.
+  useEffect(() => {
+    if (!stream || !liveOn) { hub.set(id, { air: { status: liveOn ? "off" : "stopped" } }); return; }
+    let cancelled = false, pub = null, retry = null;
     const goLive = async () => {
       if (cancelled || !stream) return;
       hub.set(id, (s) => ({ air: { status: "connecting", since: s.air?.since } }));
       try {
         pub = await publish(id, stream, () => { pub = null; hub.set(id, { air: { status: "error", message: "Connection dropped, reconnecting…" } }); schedule(); });
         if (cancelled) { pub.close(); return; }
-        hub.set(id, { air: { status: "on", since: Date.now() } });
+        hub.set(id, { air: { status: "on", since: Date.now(), sessionId: pub.sessionId } });
       } catch (e) {
         if (cancelled) return;
         hub.set(id, { air: { status: "error", message: e.message } });
@@ -46,25 +71,13 @@ export default function CameraRunner({ cam, detecting, onResult, folderRef, onRe
       }
     };
     const schedule = () => { clearTimeout(retry); if (!cancelled) retry = setTimeout(goLive, LIVE.heartbeatS * 1000); };
-    openCamera(cam.index)
-      .then((res) => {
-        if (cancelled) { stopStream(res.stream); return; }
-        stream = res.stream; streamRef.current = stream;
-        if (videoRef.current) videoRef.current.srcObject = stream;
-        hub.set(id, { status: "live", label: res.label, stream });
-        goLive();
-      })
-      .catch((e) => !cancelled && hub.set(id, { status: "error", message: e.message }));
+    goLive();
     return () => {
       cancelled = true;
       clearTimeout(retry);
-      pub?.close();
-      recRef.current?.stop(); // the file is still saved
-      streamRef.current = null;
-      stopStream(stream);
-      hub.set(id, { status: "off", stream: null, air: { status: "off" } });
+      pub?.close(); // also tells the server this camera is no longer live
     };
-  }, [id, cam.index]);
+  }, [id, stream, liveOn]);
   useEffect(() => () => hub.remove(id), [id]);
 
   // 3. Detection loop (one run at a time, at most DETECTION.runsPerSecond) + snapshots.

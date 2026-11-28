@@ -10,7 +10,8 @@ import { listCameras } from "../lib/webcam";
 const EMPTY = { name: "", lat: "", lon: "", index: "", heading: "", fov: "" };
 const field = "mt-1 w-full rounded-md border border-line bg-[#0f191d] px-2.5 py-1.5 text-sm text-ink placeholder:text-muted/60 focus:border-accent focus:outline-none";
 
-export default function CameraConfig({ cameras, onSave, onRemove, onShow, validate, openIds = [], onOpenAll, onCloseAll }) {
+export default function CameraConfig({ cameras, onSave, onRemove, onShow, validate, openIds = [], onOpenAll, onCloseAll, liveOff = [], onSetLive }) {
+  const allIds = cameras.map((c) => c.id), anyOn = allIds.some((x) => !liveOff.includes(x)), anyOff = allIds.some((x) => liveOff.includes(x));
   const [form, setForm] = useState(EMPTY);
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState("");
@@ -119,6 +120,12 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
           <p className="text-xs text-muted">No cameras yet. Add one above and its mark appears on the map.</p>
         ) : (
           <>
+          {onSetLive && (
+            <div className="mb-1.5 flex gap-1.5">
+              <button type="button" className="chip flex-1 py-1" onClick={() => onSetLive(allIds, false)} disabled={!anyOn}>■ Stop all live</button>
+              <button type="button" className="chip flex-1 py-1" onClick={() => onSetLive(allIds, true)} disabled={!anyOff}>▶ Start all live</button>
+            </div>
+          )}
           {cameras.length > 1 && (
             <div className="mb-1.5 flex gap-1.5">
               <button type="button" className="chip flex-1 py-1" onClick={onOpenAll}>Show all</button>
@@ -130,7 +137,9 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
               <li key={c.id} className="rounded-md border border-line p-2 text-xs">
                 <div className="flex items-baseline justify-between gap-2">
                   <b className="truncate text-sm">{c.name}</b>
-                  <span className="shrink-0 font-mono text-muted">index {c.index}</span>
+                  <span className="shrink-0 font-mono text-muted">index {c.index}{" "}
+                    <span className={`ml-1 rounded px-1 text-[0.6rem] ${liveOff.includes(c.id) ? "border border-line" : "bg-red-600/90 text-white"}`}>{liveOff.includes(c.id) ? "LIVE OFF" : "LIVE ON"}</span>
+                  </span>
                 </div>
                 <div className="mt-0.5 font-mono text-muted tabular-nums">{c.lat.toFixed(6)}, {c.lon.toFixed(6)}{c.barangay ? ` · ${c.barangay}` : ""}</div>
                 <div className="mt-0.5 font-mono tabular-nums">
@@ -140,6 +149,11 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
                 </div>
                 <div className="mt-1.5 flex gap-1.5">
                   <button type="button" className="chip flex-1 py-1" aria-pressed={openIds.includes(c.id)} onClick={() => onShow(c)}>Show</button>
+                  {onSetLive && (
+                    <button type="button" className="chip flex-1 py-1" onClick={() => onSetLive([c.id], liveOff.includes(c.id))}>
+                      {liveOff.includes(c.id) ? "Start live" : "Stop live"}
+                    </button>
+                  )}
                   <button type="button" className="chip flex-1 py-1" onClick={() => edit(c)}>Edit</button>
                   <button type="button" className="chip flex-1 py-1" onClick={() => remove(c)}>Remove</button>
                 </div>

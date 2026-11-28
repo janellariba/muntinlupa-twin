@@ -9,7 +9,7 @@ import { hub, useCam } from "../lib/cameraHub";
 const isFire = (name) => /fire|flame/i.test(name);
 const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-export default function CameraPopup({ cam, onClose }) {
+export default function CameraPopup({ cam, onClose, liveOn = true, onSetLive }) {
   const videoRef = useRef(null);
   const s = useCam(cam.id);
   const [, tick] = useState(0);
@@ -62,7 +62,7 @@ export default function CameraPopup({ cam, onClose }) {
           <span className="absolute left-2 top-2 flex gap-1 font-mono text-[0.65rem]">
             <span className={`rounded px-1.5 py-0.5 ${air === "on" ? "bg-red-600/90 font-semibold" : "bg-black/70"}`}
               title={air === "on" ? "Viewers with the password can watch" : s.air?.message || "Connecting to Cloudflare"}>
-              {air === "on" ? "● ON AIR" : air === "connecting" ? "connecting…" : air === "error" ? "OFF AIR" : "LOCAL"}
+              {air === "on" ? "● ON AIR" : air === "connecting" ? "connecting…" : air === "stopped" ? "LIVE STOPPED" : air === "error" ? "OFF AIR" : "LOCAL"}
             </span>
           </span>
         )}
@@ -88,10 +88,17 @@ export default function CameraPopup({ cam, onClose }) {
       </div>
       {s.detError && <p className="px-3 pb-2 text-[0.68rem] text-[#f2a0a0]">Detection error: {s.detError}</p>}
       <div className="grid gap-1 border-t border-line px-3 py-2 text-[0.68rem]">
-        <button type="button" className={`chip py-1 ${s.rec ? "!border-red-500 text-red-300" : ""}`} onClick={() => hub.action(cam.id).toggleRecord?.()}
-          disabled={!live && !s.rec} aria-pressed={!!s.rec}>
-          {s.rec ? "■ Stop recording" : "● Record"}
-        </button>
+        <div className="grid grid-cols-2 gap-1.5">
+          <button type="button" className={`chip py-1 ${liveOn ? "" : "!border-accent"}`} onClick={() => onSetLive?.([cam.id], !liveOn)} aria-pressed={!liveOn}
+            title={liveOn ? "Stop sending live video. Detection, pictures and recording keep running." : "Send live video again"}>
+            {liveOn ? "■ Stop live" : "▶ Start live"}
+          </button>
+          <button type="button" className={`chip py-1 ${s.rec ? "!border-red-500 text-red-300" : ""}`} onClick={() => hub.action(cam.id).toggleRecord?.()}
+            disabled={!live && !s.rec} aria-pressed={!!s.rec}>
+            {s.rec ? "■ Stop rec" : "● Record"}
+          </button>
+        </div>
+        {!liveOn && <span className="text-muted">Live video stopped for viewers. Detection and the per-minute picture still run.</span>}
         {s.rec && <span className="text-muted">{s.rec.mode === "folder" ? "Writing to your recordings folder" : "Kept in memory, downloads when you stop"}. Stops by itself after {LOGGING.maxRecordingS / 60} min. Closing this popup does not stop it.</span>}
         {s.recMsg && <span className={s.recMsg.ok ? "text-muted" : "text-[#f2a0a0]"}>{s.recMsg.text}</span>}
         {air === "error" && <span className="text-[#f2a0a0]">Live: {s.air.message}</span>}

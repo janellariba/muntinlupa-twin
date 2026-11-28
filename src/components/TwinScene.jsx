@@ -209,7 +209,7 @@ function CameraMark({ cam, ground, open, onOpen, onClose, admin, viewer }) {
       {open && (
         <Html position={top} zIndexRange={[19, 16]} style={{ transform: "translate(-50%, calc(-100% - 1.4rem))" }}>
           {admin
-            ? <CameraPopup cam={cam} onClose={() => onClose(cam.id)} />
+            ? <CameraPopup cam={cam} onClose={() => onClose(cam.id)} liveOn={!admin.liveOff.includes(cam.id)} onSetLive={admin.setLive} />
             : <CameraInfoPopup cam={cam} onClose={() => onClose(cam.id)} viewer={viewer} />}
         </Html>
       )}
