@@ -85,3 +85,13 @@ alter table twin_recordings     enable row level security;
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('twin-snapshots', 'twin-snapshots', false, 5242880, array['image/jpeg'])
 on conflict (id) do nothing;
+
+-- Live streaming (Cloudflare Realtime) and the once-a-minute preview picture (added 2026-11-28).
+-- live_session / live_track: the admin laptop's Cloudflare publishing session for this camera.
+-- live_at: last heartbeat from the admin laptop (stream counts as live while recent).
+-- preview_path / preview_at: latest preview picture in the twin-snapshots bucket (overwritten each minute).
+alter table twin_cameras add column if not exists live_session text;
+alter table twin_cameras add column if not exists live_track   text;
+alter table twin_cameras add column if not exists live_at      timestamptz;
+alter table twin_cameras add column if not exists preview_path text;
+alter table twin_cameras add column if not exists preview_at   timestamptz;

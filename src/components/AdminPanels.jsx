@@ -112,10 +112,38 @@ export function ImportCard({ local, onImport }) {
 }
 
 /* Twin page: cameras from the database, read only. */
-export function CameraList({ cameras, onShow, openIds, error, loaded }) {
+function ViewerAccess({ viewer, anyLive }) {
+  const [pw, setPw] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (viewer.ok) return (
+    <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+      <span className="text-muted">Live video unlocked on this device.</span>
+      <button className="chip py-1" onClick={viewer.lock}>Lock</button>
+    </div>
+  );
+  const submit = async (e) => {
+    e.preventDefault(); setBusy(true); setMsg("");
+    try { await viewer.unlock(pw); setPw(""); } catch (err) { setMsg(err.message); } finally { setBusy(false); }
+  };
+  return (
+    <form onSubmit={submit} className="mb-2 text-xs">
+      <p className="text-muted">{anyLive ? "Pictures update every minute. Enter the viewer password to watch live video." : "Pictures update every minute while the cameras run."}</p>
+      <div className="mt-1.5 flex gap-1.5">
+        <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="Viewer password" aria-label="Viewer password" autoComplete="current-password"
+          className="min-w-0 flex-1 rounded-md border border-line bg-[#0f191d] px-2 py-1 text-ink focus:border-accent focus:outline-none" />
+        <button className="chip shrink-0 py-1" disabled={busy || !pw}>{busy ? "…" : "Unlock live"}</button>
+      </div>
+      {msg && <p role="alert" className="mt-1 text-[#f2a0a0]">{msg}</p>}
+    </form>
+  );
+}
+
+export function CameraList({ cameras, onShow, openIds, error, loaded, viewer }) {
   return (
     <div>
       <H2>Cameras</H2>
+      {viewer && cameras.length > 0 && <ViewerAccess viewer={viewer} anyLive={cameras.some((c) => c.live)} />}
       {error && <p role="alert" className="mb-1.5 text-xs text-[#f2a0a0]">Camera data unavailable: {error}</p>}
       {!loaded ? <p className="text-xs text-muted">Loading cameras…</p> : cameras.length === 0 ? (
         <p className="text-xs text-muted">No cameras yet. Cameras are added in the admin console.</p>
@@ -126,7 +154,9 @@ export function CameraList({ cameras, onShow, openIds, error, loaded }) {
               <button className={`w-full rounded-md border p-2 text-left text-xs hover:border-accent ${c.detectingNow ? "border-red-500" : "border-line"}`}
                 aria-pressed={openIds.includes(c.id)} onClick={() => onShow(c)}>
                 <div className="flex items-baseline justify-between gap-2">
-                  <b className="truncate text-sm">{c.name}</b>
+                  <b className="truncate text-sm">{c.name}{" "}
+                    <span className={`ml-1 rounded px-1 font-mono text-[0.6rem] font-normal ${c.live ? "bg-red-600/90 text-white" : "border border-line text-muted"}`}>{c.live ? "LIVE" : "OFFLINE"}</span>
+                  </b>
                   {c.detectingNow
                     ? <span className="shrink-0 animate-pulse font-mono text-red-400">{c.lastDet.className} {Math.round(c.lastDet.confidence * 100)}%</span>
                     : <span className="shrink-0 text-muted">{c.lastDet ? `last ${c.lastDet.className} ${agoText(c.lastDetAgeS)}` : "no detections"}</span>}

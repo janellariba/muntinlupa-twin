@@ -178,7 +178,7 @@ function BarangayOutline({ rec, color, width, opacity }) {
 
 /* One configured camera: an amber mast with a clickable camera button on top.
    Clicking it opens a small popup above the mark with that camera's live stream. */
-function CameraMark({ cam, ground, open, onOpen, onClose, detecting, onDetResult, admin }) {
+function CameraMark({ cam, ground, open, onOpen, onClose, admin, viewer }) {
   const g = ground(cam.x, cam.y);
   const top = toThree(cam.x, cam.y, g + CAMERA_MARKER_H);
   return (
@@ -202,15 +202,15 @@ function CameraMark({ cam, ground, open, onOpen, onClose, detecting, onDetResult
             </svg>
           </span>
           <span className="mt-0.5 whitespace-nowrap font-display text-xs font-semibold uppercase tracking-wider text-accent [text-shadow:0_1px_3px_#000,0_0_8px_#000]">
-            {cam.name}
+            {cam.name}{cam.live ? <span className="ml-1 text-red-400">● live</span> : null}
           </span>
         </button>
       </Html>
       {open && (
         <Html position={top} zIndexRange={[19, 16]} style={{ transform: "translate(-50%, calc(-100% - 1.4rem))" }}>
           {admin
-            ? <CameraPopup cam={cam} onClose={() => onClose(cam.id)} detecting={detecting} onResult={onDetResult} admin={admin} />
-            : <CameraInfoPopup cam={cam} onClose={() => onClose(cam.id)} />}
+            ? <CameraPopup cam={cam} onClose={() => onClose(cam.id)} />
+            : <CameraInfoPopup cam={cam} onClose={() => onClose(cam.id)} viewer={viewer} />}
         </Html>
       )}
     </group>
@@ -270,7 +270,7 @@ function TriangulationLayer({ live, ground }) {
   );
 }
 
-const Scene = memo(function Scene({ twin, buildings, visible, colorMode, flyTarget, selected, selectedBrgy, hoverBrgy, cams, openCamIds, onOpenCam, onCloseCam, detecting, onDetResult, live, wind, autoOrbit, onPick, onHover, admin }) {
+const Scene = memo(function Scene({ twin, buildings, visible, colorMode, flyTarget, selected, selectedBrgy, hoverBrgy, cams, openCamIds, onOpenCam, onCloseCam, live, wind, autoOrbit, onPick, onHover, admin, viewer }) {
   const buildingsRef = useRef();
   const terrainRef = useRef();
 
@@ -346,7 +346,7 @@ const Scene = memo(function Scene({ twin, buildings, visible, colorMode, flyTarg
 
       {visible.cameras && cams.map((c) => (
         <CameraMark key={c.id} cam={c} ground={twin.ground} open={openCamIds.includes(c.id)} onOpen={onOpenCam} onClose={onCloseCam}
-          detecting={detecting} onDetResult={onDetResult} admin={admin} />
+          admin={admin} viewer={viewer} />
       ))}
       {visible.triangulation && live && <TriangulationLayer live={live} ground={twin.ground} />}
       {visible.wind && wind && <WindParticles wind={wind} twin={twin} />}

@@ -16,8 +16,8 @@ function sb() {
   return client;
 }
 
-export async function uploadJpeg(path, buffer) {
-  const { error } = await sb().storage.from(BUCKET).upload(path, buffer, { contentType: "image/jpeg", upsert: false });
+export async function uploadJpeg(path, buffer, upsert = false) {
+  const { error } = await sb().storage.from(BUCKET).upload(path, buffer, { contentType: "image/jpeg", upsert });
   if (error) throw new HttpError(502, `Could not save the snapshot: ${error.message}`);
   return path;
 }

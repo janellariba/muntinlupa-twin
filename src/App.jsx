@@ -21,7 +21,9 @@ import { AdminBar, RecordingsPanel, ImportCard, CameraList, savedFolder } from "
 import { useTwinStatus } from "./lib/useTwinStatus";
 import { storedToLive } from "./lib/storedEstimate";
 import { api } from "./lib/api";
-import { LOGGING, ACTIVE_ESTIMATE_S } from "./lib/detectionConfig";
+import { LOGGING, ACTIVE_ESTIMATE_S, LIVE } from "./lib/detectionConfig";
+import CameraRunner from "./components/CameraRunner";
+import { hub, useHubVersion } from "./lib/cameraHub";
 
 // Twin page: a camera counts as "detecting now" while its latest saved snapshot is newer than
 // 2 x snapshotIntervalS (snapshots are saved every snapshotIntervalS while it sees fire/smoke).
@@ -169,12 +171,14 @@ export default function App({ admin = false, onLogout }) {
 
   // Cameras placed on the map (local meters + barangay), recomputed from the saved lat/lon,
   // plus each camera's latest saved detection (twin page popups and red marks).
-  // Which cameras count as detecting now; a string so the map only re-renders when it changes.
+  // Which cameras count as detecting now / streaming now; strings so the map only re-renders when they change.
   const detectingKey = admin ? "" : camConfigs.filter((c) => status.ageS(status.latest[c.id]?.detectedAt) < DETECTING_NOW_S).map((c) => c.id).join(",");
+  const liveKey = camConfigs.filter((c) => status.ageS(c.liveAt) < LIVE.offlineAfterS).map((c) => c.id).join(",");
   const cams = useMemo(() => (twin ? camConfigs.map((c) => {
     const d = status.latest[c.id], age = d ? status.ageS(d.detectedAt) : Infinity;
-    return { ...placeCamera(c, twin), lastDet: d ?? null, lastDetAgeS: age, detectingNow: detectingKey.split(",").includes(c.id) };
-  }) : []), [twin, camConfigs, status.latest, status.ageS, detectingKey]);
+    return { ...placeCamera(c, twin), lastDet: d ?? null, lastDetAgeS: age, detectingNow: detectingKey.split(",").includes(c.id),
+      live: liveKey.split(",").includes(c.id), previewAgeS: status.ageS(c.previewAt) };
+  }) : []), [twin, camConfigs, status.latest, status.ageS, detectingKey, liveKey]);
   const fields = ({ name, lat, lon, index, heading, fov }) => ({ name, lat, lon, index, heading, fov });
   const saveCam = async (cam, editingId) => {
     if (editingId) await api.updateCamera(editingId, fields(cam)); else await api.addCamera(fields(cam));
@@ -264,6 +268,36 @@ export default function App({ admin = false, onLogout }) {
   }, [admin, twin, status.estimate, camConfigs, estimateActive]);
   const live = admin ? liveAdmin : liveStored;
   useEffect(() => { if (admin) savedFolder().then((f) => f && setFolder(f)); }, [admin]);
+  const folderRef = useRef(null); folderRef.current = folder;
+  // Admin: tell the server every LIVE.heartbeatS which cameras are on air; warn before closing mid-recording.
+  useHubVersion();
+  const recording = admin && [...hub.all().values()].some((s) => s.rec);
+  useEffect(() => {
+    if (!admin) return;
+    const beat = () => {
+      const ids = [...hub.all().entries()].filter(([, s]) => s.air?.status === "on").map(([id]) => id);
+      if (ids.length) api.liveHeartbeat(ids).catch(() => {});
+    };
+    const t = setInterval(beat, LIVE.heartbeatS * 1000);
+    // Tab closed or laptop going away: mark the cameras offline right away (otherwise after offlineAfterS).
+    const bye = () => [...hub.all().entries()].filter(([, s]) => s.air?.status === "on").forEach(([id]) => api.liveStop(id).catch(() => {}));
+    window.addEventListener("pagehide", bye);
+    return () => { clearInterval(t); window.removeEventListener("pagehide", bye); };
+  }, [admin]);
+  useEffect(() => {
+    if (!recording) return;
+    const warn = (e) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [recording]);
+  // Twin: live video needs the viewer password (admins count as viewers).
+  const [viewerOk, setViewerOk] = useState(false);
+  useEffect(() => { api.session().then((r) => setViewerOk(!!r.viewer)).catch(() => {}); }, []);
+  const viewer = useMemo(() => ({
+    ok: viewerOk,
+    unlock: async (pw) => { await api.login(pw, "viewer"); setViewerOk(true); },
+    lock: async () => { await api.logout("viewer").catch(() => {}); api.session().then((r) => setViewerOk(!!r.viewer)).catch(() => setViewerOk(false)); },
+  }), [viewerOk]);
   const onRecorded = useCallback(() => setRecVersion((v) => v + 1), []);
   const adminTools = useMemo(() => (admin ? { folder, onRecorded } : null), [admin, folder, onRecorded]);
   useEffect(() => { if (!visible.cameras) setOpenCamIds([]); }, [visible.cameras]);
@@ -277,7 +311,7 @@ export default function App({ admin = false, onLogout }) {
     places: twin && <PlacesPanel labels={twin.labels} current={place.label} onPlace={goPlace} onOverview={overview} autoOrbit={autoOrbit} onOrbit={() => setAutoOrbit((o) => !o)} />,
     detection: (
       <DetectionPanel model={model} onLoadFile={onLoadModelFile} onForget={onForgetModel} detectOn={detectOn}
-        onToggleDetect={() => setDetectOn((d) => !d)} live={liveAdmin} openCount={openCamIds.length} saveMsg={estimateMsg} />
+        onToggleDetect={() => setDetectOn((d) => !d)} live={liveAdmin} openCount={cams.length} saveMsg={estimateMsg} />
     ),
     adminBar: <AdminBar onLogout={onLogout} dbError={status.error} />,
     recordings: <RecordingsPanel folder={folder} onFolder={setFolder} version={recVersion} />,
@@ -289,7 +323,7 @@ export default function App({ admin = false, onLogout }) {
           validate={(form, editingId) => validateCamera(form, twin, camConfigs, editingId)} />
       </div>
     ) : (
-      <CameraList cameras={cams} onShow={showCam} openIds={openCamIds} error={status.error} loaded={status.loaded} />
+      <CameraList cameras={cams} onShow={showCam} openIds={openCamIds} error={status.error} loaded={status.loaded} viewer={viewer} />
     )),
     weather: <WeatherCard place={weatherPlace} w={weather} />,
     info: <BuildingInfo info={info} types={twin?.meta.building_types ?? []} heightSources={heightSources} onClose={() => setPickedTri(null)} />,
@@ -312,15 +346,19 @@ export default function App({ admin = false, onLogout }) {
         openCamIds={openCamIds}
         onOpenCam={openCam}
         onCloseCam={closeCam}
-        detecting={detecting}
-        onDetResult={onDetResult}
         live={live}
         admin={adminTools}
+        viewer={viewer}
         wind={wind}
         autoOrbit={autoOrbit}
         onPick={onPick}
         onHover={setCursor}
       />
+
+      {/* Admin: every camera runs in the background (stream, live, detection, previews, recording). */}
+      {admin && twin && cams.map((c) => (
+        <CameraRunner key={c.id} cam={c} detecting={detecting} onResult={onDetResult} folderRef={folderRef} onRecorded={onRecorded} />
+      ))}
 
       {/* Loading / error overlay */}
       {(!twin || error) && (

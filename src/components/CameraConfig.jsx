@@ -121,7 +121,7 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
           <>
           {cameras.length > 1 && (
             <div className="mb-1.5 flex gap-1.5">
-              <button type="button" className="chip flex-1 py-1" onClick={onOpenAll}>Open all streams</button>
+              <button type="button" className="chip flex-1 py-1" onClick={onOpenAll}>Show all</button>
               <button type="button" className="chip flex-1 py-1" onClick={onCloseAll} disabled={!openIds.length}>Close all</button>
             </div>
           )}
@@ -149,7 +149,7 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
           </>
         )}
         <p className="mt-2 text-[0.7rem] leading-snug text-muted">
-          Saved in the database: the twin page on any device shows these cameras. The stream opens the webcam with that index on this admin device.
+          Saved in the database: the twin page on any device shows these cameras. While this console is open, each camera's webcam (that index on this laptop) streams live, detects and sends a picture every minute, even with its popup closed.
         </p>
       </div>
     </div>

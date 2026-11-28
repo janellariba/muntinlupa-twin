@@ -3,6 +3,8 @@
 //           the latest fire estimate. Anyone can read. The pages call this every few seconds.
 //   POST { type: "detection", ... , jpeg: base64 } -> admin: save a snapshot + its detection
 //   POST { type: "estimate", ... }                  -> admin: save a triangulated fire estimate
+//   POST { type: "preview", cameraId, jpeg }        -> admin: the once-a-minute picture for public viewers
+//                                                      (one file per camera, overwritten each time)
 import crypto from "node:crypto";
 import { handler, readJson, send, HttpError } from "./_lib/http.js";
 import { requireAdmin } from "./_lib/auth.js";
@@ -18,8 +20,7 @@ async function saveDetection(b) {
   if (!(conf >= 0 && conf <= 1)) throw new HttpError(400, "Confidence must be between 0 and 1.");
   let path = null;
   if (b.jpeg) {
-    const buf = Buffer.from(String(b.jpeg), "base64");
-    if (buf.length < 100 || buf[0] !== 0xff || buf[1] !== 0xd8) throw new HttpError(400, "Snapshot is not a JPEG picture.");
+    const buf = jpegBuffer(b.jpeg);
     const day = new Date().toISOString().slice(0, 10);
     path = await uploadJpeg(`${day}/${cam.id}/${Date.now()}-${crypto.randomBytes(3).toString("hex")}.jpg`, buf);
   }
@@ -29,6 +30,20 @@ async function saveDetection(b) {
     [cam.id, cam.name, String(b.className ?? "").slice(0, 40), conf, JSON.stringify(b.bbox ?? {}), finite(b.frameW), finite(b.frameH),
      JSON.stringify(b.allBoxes ?? []), finite(b.bearing), Boolean(b.fromSmoke), path]);
   return { id: rows[0].id, detectedAt: rows[0].detected_at, snapshotPath: path };
+}
+
+function jpegBuffer(b64) {
+  const buf = Buffer.from(String(b64 ?? ""), "base64");
+  if (buf.length < 100 || buf[0] !== 0xff || buf[1] !== 0xd8) throw new HttpError(400, "Snapshot is not a JPEG picture.");
+  return buf;
+}
+
+async function savePreview(b) {
+  const cam = (await q("select id from twin_cameras where id=$1", [b.cameraId])).rows[0];
+  if (!cam) throw new HttpError(404, "Camera not found.");
+  const path = await uploadJpeg(`previews/${cam.id}.jpg`, jpegBuffer(b.jpeg), true);
+  await q("update twin_cameras set preview_path=$2, preview_at=now() where id=$1", [cam.id, path]);
+  return { ok: true };
 }
 
 async function saveEstimate(b) {
@@ -46,16 +61,19 @@ async function saveEstimate(b) {
 export default handler({
   GET: async (req, res) => {
     const [cams, latest, est] = await Promise.all([
-      q("select id, name, lat, lon, cam_index, heading_deg, fov_deg from twin_cameras order by created_at"),
+      q("select id, name, lat, lon, cam_index, heading_deg, fov_deg, live_at, preview_path, preview_at from twin_cameras order by created_at"),
       q(`select distinct on (camera_id) id, camera_id, class_name, confidence, bearing_deg, from_smoke, snapshot_path, detected_at
          from twin_detections where camera_id is not null order by camera_id, detected_at desc`),
       q("select * from twin_fire_estimates order by estimated_at desc limit 1"),
     ]);
-    const urls = await signedUrls(latest.rows.map((r) => r.snapshot_path));
+    const urls = await signedUrls([...latest.rows.map((r) => r.snapshot_path), ...cams.rows.map((r) => r.preview_path)]);
     const e = est.rows[0];
     send(res, 200, {
       serverTime: new Date().toISOString(),
-      cameras: cams.rows.map((r) => ({ id: r.id, name: r.name, lat: r.lat, lon: r.lon, index: r.cam_index, heading: r.heading_deg, fov: r.fov_deg })),
+      cameras: cams.rows.map((r) => ({
+        id: r.id, name: r.name, lat: r.lat, lon: r.lon, index: r.cam_index, heading: r.heading_deg, fov: r.fov_deg,
+        liveAt: r.live_at, previewUrl: urls[r.preview_path] ?? null, previewAt: r.preview_at,
+      })),
       latestDetections: latest.rows.map((r) => ({
         cameraId: r.camera_id, className: r.class_name, confidence: r.confidence, bearing: r.bearing_deg, fromSmoke: r.from_smoke,
         detectedAt: r.detected_at, snapshotUrl: urls[r.snapshot_path] ?? null,
@@ -72,6 +90,7 @@ export default handler({
     const b = await readJson(req, 4_000_000); // Vercel functions accept up to 4.5 MB per request
     if (b.type === "detection") return send(res, 201, await saveDetection(b));
     if (b.type === "estimate") return send(res, 201, await saveEstimate(b));
+    if (b.type === "preview") return send(res, 201, await savePreview(b));
     throw new HttpError(400, 'type must be "detection" or "estimate".');
   },
 });

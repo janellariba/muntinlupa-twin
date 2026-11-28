@@ -141,6 +141,25 @@ Other values: admin session 12 h, snapshot links valid 1 h, 1 s delay after a wr
 Recording: Chrome/Edge write straight to a chosen folder (no memory limit); other browsers download when you stop.
 Chrome does not store the video length in .webm files, so some players cannot seek; VLC plays them fine.
 
+## Live video (Cloudflare Realtime)
+
+While `/admin` is open on the laptop with the cameras plugged in, every camera starts by itself:
+webcam, live stream, fire/smoke detection (when the model is loaded), and a preview picture every 60 s.
+Closing a popup does not stop any of it; closing the admin tab marks the cameras offline.
+
+```
+admin laptop --1 upload per camera--> Cloudflare Realtime SFU --> viewers with VIEWER_PASSWORD
+            \--preview JPEG every 60 s--> Supabase Storage --> everyone else (picture per minute)
+```
+
+Extra Vercel variables (Secret): `CF_REALTIME_APP_ID`, `CF_REALTIME_APP_SECRET` (Cloudflare dashboard,
+Realtime, Serverless SFU, create app), `VIEWER_PASSWORD`. Run the updated `db/schema.sql` once (adds 5 columns).
+`/api/health` checks all of it.
+
+Values (`src/lib/detectionConfig.js` LIVE): preview every 60 s (approved); TEMPORARY until approved:
+heartbeat 15 s, offline after 45 s without one, 1500 kbps cap per camera (about 0.7 GB per viewer-hour;
+Cloudflare's free tier is 1,000 GB/month of viewing). Viewer login lasts 12 h like the admin login.
+
 ## Backup
 
 The version before Camera config is kept on the branch **`backup/before-camera-config`**

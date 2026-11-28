@@ -50,6 +50,7 @@ export function handler(methods) {
 /** A readable cause for common setup problems. Never includes passwords, keys or the connection string. */
 export function explain(e) {
   const code = e?.code, msg = String(e?.message || "");
+  if (code === "42703") return "Database is missing new columns: run the updated db/schema.sql again in the Supabase SQL Editor.";
   if (code === "42P01" || code === "3F000") return "Database tables are missing: run db/schema.sql in the Supabase SQL Editor.";
   if (code === "28P01" || code === "28000" || /password authentication failed/i.test(msg)) return "Database password is wrong: check the password inside DATABASE_URL (no [ ] brackets).";
   if (/tenant or user not found/i.test(msg)) return "DATABASE_URL user or host is wrong: copy the Shared pooler string from Supabase Connect again.";

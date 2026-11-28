@@ -48,9 +48,9 @@ export default function DetectionPanel({ model, onLoadFile, onForget, detectOn, 
       {model.status === "ready" && detectOn && (
         <div className="mt-3 text-xs">
           {openCount === 0 ? (
-            <p className="text-muted">Open camera streams to start detecting (Camera config → Show / Open all streams).</p>
+            <p className="text-muted">No cameras yet. Add one in Camera config: it starts streaming and detecting automatically.</p>
           ) : observations.length === 0 ? (
-            <p className="text-muted">Detecting on {openCount} open stream{openCount > 1 ? "s" : ""}. No fire or smoke in the last {DETECTION.combineWindowS} s.</p>
+            <p className="text-muted">Detecting on {openCount} camera{openCount > 1 ? "s" : ""}. No fire or smoke in the last {DETECTION.combineWindowS} s.</p>
           ) : (
             <ul className="grid gap-1">
               {observations.map((o) => (

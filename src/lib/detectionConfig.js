@@ -47,3 +47,12 @@ export const LOGGING = {
 // Derived, not a new value: the twin shows an estimate as ACTIVE while it is newer than
 // 2 x estimateIntervalS (it is re-saved every estimateIntervalS while the fire is tracked).
 export const ACTIVE_ESTIMATE_S = 2 * LOGGING.estimateIntervalS;
+
+// Live video (Cloudflare Realtime) and previews. previewIntervalS approved 2026-11-28 ("snapshot per min").
+// TEMPORARY values awaiting approval: heartbeatS, offlineAfterS, maxBitrateKbps.
+export const LIVE = {
+  previewIntervalS: 60,  // public viewers (no password) see a picture of each camera updated every 60 s
+  heartbeatS: 15,        // the admin laptop tells the server "still streaming" every 15 s
+  offlineAfterS: 45,     // no heartbeat for 45 s (3 missed) = camera shown as offline
+  maxBitrateKbps: 1500,  // cap per camera stream: ~0.7 GB per viewer-hour, keeps the laptop upload manageable
+};
