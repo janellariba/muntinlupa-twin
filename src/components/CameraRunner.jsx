@@ -1,8 +1,9 @@
 // CameraRunner.jsx (admin console, one per camera, no visible UI)
 // Starts automatically when a camera exists and the admin console is open:
 //   1. opens the webcam at the camera's index
-//   2. publishes it live to Cloudflare (retries every LIVE.heartbeatS if it drops), unless Stop live
-//      was pressed for it (then only live video stops; detection, previews and recording keep running)
+//   2. publishes it live to Cloudflare (retries every LIVE.heartbeatS if it drops)
+// "Stop camera" (liveOn false) turns ALL of it off for that camera: webcam, live video, detection,
+// previews and any recording (the recording file is still saved). "Start camera" turns it back on.
 //   3. runs fire/smoke detection when a model is loaded, saving a snapshot every LOGGING.snapshotIntervalS
 //      while it sees fire/smoke
 //   4. uploads a preview picture every LIVE.previewIntervalS for viewers without the password
@@ -30,8 +31,9 @@ export default function CameraRunner({ cam, detecting, liveOn, onResult, folderR
   const [stream, setStream] = useState(null);
   const id = cam.id;
 
-  // 1. Webcam (stays open while the console is open; detection, previews and recording use it).
+  // 1. Webcam, open while the camera is started (detection, previews and recording use it).
   useEffect(() => {
+    if (!liveOn) { hub.set(id, { status: "stopped", stream: null, det: null, message: "" }); return; }
     let s = null, cancelled = false;
     hub.set(id, { status: "opening", message: "" });
     openCamera(cam.index)
@@ -49,11 +51,12 @@ export default function CameraRunner({ cam, detecting, liveOn, onResult, folderR
       streamRef.current = null;
       setStream(null);
       stopStream(s);
+      if (videoRef.current) videoRef.current.srcObject = null;
       hub.set(id, { status: "off", stream: null });
     };
-  }, [id, cam.index]);
+  }, [id, cam.index, liveOn]);
 
-  // 2. Live video to Cloudflare while liveOn (default on; Stop live turns it off), retrying if it drops.
+  // 2. Live video to Cloudflare while the camera is started, retrying if it drops.
   useEffect(() => {
     if (!stream || !liveOn) { hub.set(id, { air: { status: liveOn ? "off" : "stopped" } }); return; }
     let cancelled = false, pub = null, retry = null;
@@ -82,7 +85,7 @@ export default function CameraRunner({ cam, detecting, liveOn, onResult, folderR
 
   // 3. Detection loop (one run at a time, at most DETECTION.runsPerSecond) + snapshots.
   useEffect(() => {
-    if (!detecting) { lastDet.current = null; hub.set(id, { det: null, detError: "" }); onResult?.(id, null); return; }
+    if (!detecting || !stream) { lastDet.current = null; hub.set(id, { det: null, detError: "" }); onResult?.(id, null); return; }
     let busy = false, alive = true;
     const t = setInterval(() => {
       const v = videoRef.current;
@@ -100,7 +103,7 @@ export default function CameraRunner({ cam, detecting, liveOn, onResult, folderR
         .finally(() => { busy = false; });
     }, 1000 / DETECTION.runsPerSecond);
     return () => { alive = false; clearInterval(t); onResult?.(id, null); };
-  }, [detecting, id, onResult]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [detecting, stream, id, onResult]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function saveSnapshot(r) {
     const box = pickBox(r.dets);
@@ -122,6 +125,7 @@ export default function CameraRunner({ cam, detecting, liveOn, onResult, folderR
 
   // 4. Preview picture for viewers without the password (first one a few seconds after the camera opens).
   useEffect(() => {
+    if (!stream) return;
     const send = () => {
       const v = videoRef.current;
       if (!v?.videoWidth) return;
@@ -135,7 +139,7 @@ export default function CameraRunner({ cam, detecting, liveOn, onResult, folderR
     const first = setTimeout(send, 5000);
     const t = setInterval(send, LIVE.previewIntervalS * 1000);
     return () => { clearTimeout(first); clearInterval(t); };
-  }, [id]);
+  }, [id, stream]);
 
   // 5. Recording, started/stopped from the popup.
   useEffect(() => {

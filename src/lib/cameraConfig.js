@@ -62,8 +62,8 @@ export function validateCamera(form, twin, existing, editingId) {
   return { cam: { id: editingId || `cam-${Date.now().toString(36)}`, name, lat, lon, index, heading, fov } };
 }
 
-/* Cameras whose live video was stopped with "Stop live" on this admin laptop. Every other camera,
-   including a newly added one, goes live automatically. Kept across reloads in this browser. */
+/* Cameras turned off with "Stop camera" on this admin laptop (webcam, live, detection, pictures off).
+   Every other camera, including a newly added one, starts automatically. Kept across reloads. */
 const LIVE_OFF_KEY = "twin.liveOff.v1";
 export function loadLiveOff() {
   try { const v = JSON.parse(localStorage.getItem(LIVE_OFF_KEY) || "[]"); return Array.isArray(v) ? v : []; } catch { return []; }

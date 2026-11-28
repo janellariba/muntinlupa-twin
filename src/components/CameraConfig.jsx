@@ -122,8 +122,8 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
           <>
           {onSetLive && (
             <div className="mb-1.5 flex gap-1.5">
-              <button type="button" className="chip flex-1 py-1" onClick={() => onSetLive(allIds, false)} disabled={!anyOn}>■ Stop all live</button>
-              <button type="button" className="chip flex-1 py-1" onClick={() => onSetLive(allIds, true)} disabled={!anyOff}>▶ Start all live</button>
+              <button type="button" className="chip flex-1 py-1" onClick={() => onSetLive(allIds, false)} disabled={!anyOn}>■ Stop all cameras</button>
+              <button type="button" className="chip flex-1 py-1" onClick={() => onSetLive(allIds, true)} disabled={!anyOff}>▶ Start all cameras</button>
             </div>
           )}
           {cameras.length > 1 && (
@@ -138,7 +138,7 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
                 <div className="flex items-baseline justify-between gap-2">
                   <b className="truncate text-sm">{c.name}</b>
                   <span className="shrink-0 font-mono text-muted">index {c.index}{" "}
-                    <span className={`ml-1 rounded px-1 text-[0.6rem] ${liveOff.includes(c.id) ? "border border-line" : "bg-red-600/90 text-white"}`}>{liveOff.includes(c.id) ? "LIVE OFF" : "LIVE ON"}</span>
+                    <span className={`ml-1 rounded px-1 text-[0.6rem] ${liveOff.includes(c.id) ? "border border-line" : "bg-red-600/90 text-white"}`}>{liveOff.includes(c.id) ? "STOPPED" : "ON"}</span>
                   </span>
                 </div>
                 <div className="mt-0.5 font-mono text-muted tabular-nums">{c.lat.toFixed(6)}, {c.lon.toFixed(6)}{c.barangay ? ` · ${c.barangay}` : ""}</div>
@@ -151,7 +151,7 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
                   <button type="button" className="chip flex-1 py-1" aria-pressed={openIds.includes(c.id)} onClick={() => onShow(c)}>Show</button>
                   {onSetLive && (
                     <button type="button" className="chip flex-1 py-1" onClick={() => onSetLive([c.id], liveOff.includes(c.id))}>
-                      {liveOff.includes(c.id) ? "Start live" : "Stop live"}
+                      {liveOff.includes(c.id) ? "Start" : "Stop"}
                     </button>
                   )}
                   <button type="button" className="chip flex-1 py-1" onClick={() => edit(c)}>Edit</button>
@@ -163,7 +163,7 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
           </>
         )}
         <p className="mt-2 text-[0.7rem] leading-snug text-muted">
-          Saved in the database: the twin page on any device shows these cameras. While this console is open, each camera's webcam (that index on this laptop) streams live, detects and sends a picture every minute, even with its popup closed.
+          Saved in the database: the twin page on any device shows these cameras. While this console is open, each camera's webcam (that index on this laptop) streams live, detects and sends a picture every minute, even with its popup closed. Stop turns a camera fully off.
         </p>
       </div>
     </div>

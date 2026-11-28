@@ -77,7 +77,7 @@ export default function CameraInfoPopup({ cam, onClose, viewer }) {
           <div className="truncate font-display text-base font-semibold uppercase leading-tight tracking-wide">{cam.name}</div>
           <div className="truncate text-[0.68rem] text-muted">
             {showLive ? "Live video" : pic ? `${pic.what}, ${agoText(pic.age)}` : "No picture yet"}
-            {!cam.live && (cam.previewAgeS < 2 * LIVE.previewIntervalS ? " · live video off" : " · camera offline")}
+            {!cam.live && " · camera offline"}
           </div>
         </div>
         <button className="chip shrink-0 px-2 py-0.5 text-base leading-none" onClick={onClose} aria-label="Close">×</button>
