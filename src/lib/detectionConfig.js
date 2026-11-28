@@ -43,6 +43,10 @@ export const LOGGING = {
   maxRecordingS: 3600,
   // The twin page asks the database for cameras, snapshots and the estimate every N seconds.
   twinRefreshS: 5,
+  // While a camera sees fire/smoke, its laptop sends the bearing to the server at most every N seconds,
+  // so cameras on DIFFERENT laptops can be triangulated together (approved 2026-11-28). Must be shorter
+  // than DETECTION.combineWindowS so bearings from two cameras overlap in time.
+  bearingIntervalS: 2,
 };
 // Derived, not a new value: the twin shows an estimate as ACTIVE while it is newer than
 // 2 x estimateIntervalS (it is re-saved every estimateIntervalS while the fire is tracked).

@@ -4,8 +4,9 @@
 import { H2 } from "./Panels";
 import { DETECTION, TRIANGULATION, LOGGING } from "../lib/detectionConfig";
 
-export default function DetectionPanel({ model, onLoadFile, onForget, detectOn, onToggleDetect, live, openCount, saveMsg }) {
-  const { observations = [], result, estimate } = live || {};
+export default function DetectionPanel({ model, onLoadFile, onForget, detectOn, onToggleDetect, live, openCount, combined, estimate, estimateActive, deviceName }) {
+  const { observations = [] } = live || {};
+  const cmb = combined, ce = cmb?.estimate;
   return (
     <div>
       <H2>Detection & triangulation</H2>
@@ -44,7 +45,7 @@ export default function DetectionPanel({ model, onLoadFile, onForget, detectOn, 
         </div>
       )}
 
-      {/* Per-camera status */}
+      {/* Per-camera status (cameras on THIS laptop, live) */}
       {model.status === "ready" && detectOn && (
         <div className="mt-3 text-xs">
           {openCount === 0 ? (
@@ -69,27 +70,46 @@ export default function DetectionPanel({ model, onLoadFile, onForget, detectOn, 
         </div>
       )}
 
-      {/* Triangulation result */}
-      {result && (
-        <div className={`mt-2 rounded-md border p-2 text-xs ${result.status === "ok" ? "border-red-500" : "border-line"}`} aria-live="polite">
-          {result.status === "ok" ? (
-            <>
-              <div className="font-display text-sm font-semibold uppercase tracking-wide text-red-400">Fire estimate{estimate.anySmoke ? " (uses smoke)" : ""}</div>
-              <div className="mt-0.5 font-mono tabular-nums">{estimate.lat.toFixed(6)}, {estimate.lon.toFixed(6)}</div>
-              <div className="mt-0.5 text-muted">
-                ±{Math.round(estimate.ellipse.major)} m × {Math.round(estimate.ellipse.minor)} m (95%) · {result.nRays} bearings · widest angle {result.maxRayAngleDeg.toFixed(0)}°
-                {result.residualRmsDeg != null ? ` · lines miss by ${result.residualRmsDeg.toFixed(1)}° RMS` : ""}
-              </div>
-            </>
-          ) : (
-            <><b className="uppercase">Rejected:</b> <span className="text-muted">{result.reason}</span></>
-          )}
-        </div>
-      )}
+      {/* Combined on the server: bearings from cameras on ALL laptops */}
+      <div className="mt-3 text-xs">
+        <div className="font-display text-sm font-semibold uppercase tracking-wide text-muted">All devices (server)</div>
+        {!cmb || cmb.status === "none" ? (
+          <p className="mt-1 text-muted">No camera on any laptop sees fire or smoke right now (last {DETECTION.combineWindowS} s).</p>
+        ) : (
+          <>
+            <ul className="mt-1 grid gap-1">
+              {cmb.bearings.map((b) => (
+                <li key={b.cameraId} className="flex items-baseline justify-between gap-2 rounded-md border border-line px-2 py-1">
+                  <span className="min-w-0 truncate"><b>{b.name}</b> <span className="text-muted">{b.device ?? "?"}</span></span>
+                  <span className="shrink-0 font-mono tabular-nums text-muted">{b.bearing.toFixed(1)}°{b.fromSmoke ? " (smoke)" : ""} · {Math.round(b.ageS)} s</span>
+                </li>
+              ))}
+            </ul>
+            <div className={`mt-2 rounded-md border p-2 ${cmb.status === "ok" ? "border-red-500" : "border-line"}`} aria-live="polite">
+              {cmb.status === "ok" ? (
+                <>
+                  <div className="font-display text-sm font-semibold uppercase tracking-wide text-red-400">Fire estimate{ce.usesSmoke ? " (uses smoke)" : ""}</div>
+                  <div className="mt-0.5 font-mono tabular-nums">{ce.lat.toFixed(6)}, {ce.lon.toFixed(6)}</div>
+                  <div className="mt-0.5 text-muted">
+                    ±{Math.round(ce.ellipse.major)} m × {Math.round(ce.ellipse.minor)} m (95%) · {cmb.nRays} bearings · widest angle {cmb.maxRayAngleDeg.toFixed(0)}°
+                    {cmb.residualRmsDeg != null ? ` · lines miss by ${cmb.residualRmsDeg.toFixed(1)}° RMS` : ""}
+                  </div>
+                </>
+              ) : (
+                <><b className="uppercase">Rejected:</b> <span className="text-muted">{cmb.reason}</span></>
+              )}
+            </div>
+          </>
+        )}
+        {estimate && (
+          <p className="mt-1.5 text-[0.68rem] text-muted">
+            Last saved estimate: {new Date(estimate.estimatedAt).toLocaleTimeString()} ({estimate.nRays} bearings){estimateActive ? ", active" : ""}.
+          </p>
+        )}
+      </div>
 
-      {saveMsg && <p className={`mt-1.5 text-[0.68rem] ${saveMsg.ok ? "text-muted" : "text-[#f2a0a0]"}`}>{saveMsg.text}</p>}
       <p className="mt-2 text-[0.65rem] leading-snug text-muted">
-        Saved to the database while detecting: 1 snapshot per camera every {LOGGING.snapshotIntervalS} s, the estimate when it appears then every {LOGGING.estimateIntervalS} s (approved 2026-11-28).
+        While detecting: bearing to the server every {LOGGING.bearingIntervalS} s, 1 snapshot per camera every {LOGGING.snapshotIntervalS} s. The server combines all laptops' bearings and saves the estimate when it appears, then every {LOGGING.estimateIntervalS} s (approved 2026-11-28).
       </p>
       <p className="mt-1 text-[0.65rem] leading-snug text-muted">
         TEMPORARY values (approved 2026-11-27): confidence {DETECTION.confThreshold} · {DETECTION.runsPerSecond} runs/s per camera ·

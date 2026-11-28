@@ -255,31 +255,14 @@ export default function App({ admin = false, onLogout }) {
     () => (twin && detecting ? liveTriangulation(myCams, hits, now, twin.meta.origin_utm) : null),
     [twin, detecting, myCams, hits, now]
   );
-  // Admin: save the estimate when it first appears, then at most every LOGGING.estimateIntervalS.
-  const lastEstimateSave = useRef(0);
-  const [estimateMsg, setEstimateMsg] = useState(null);
-  useEffect(() => {
-    const est = liveAdmin?.estimate, res = liveAdmin?.result;
-    if (!est || Date.now() - lastEstimateSave.current < LOGGING.estimateIntervalS * 1000) return;
-    lastEstimateSave.current = Date.now();
-    api.saveEstimate({
-      lat: est.lat, lon: est.lon, ellipseMajor: est.ellipse.major, ellipseMinor: est.ellipse.minor, ellipseOrient: est.ellipse.orientDeg,
-      maxRayAngle: res.maxRayAngleDeg, residualRms: res.residualRmsDeg, usesSmoke: est.anySmoke,
-      rays: liveAdmin.rays.map((r) => {
-        const c = cams.find((k) => k.id === r.id);
-        return { camera_id: r.id, camera_name: r.name, bearing_deg: r.bearing, from_smoke: r.fromSmoke, lat: c?.lat, lon: c?.lon };
-      }),
-    })
-      .then(() => setEstimateMsg({ ok: true, text: `Estimate saved ${new Date().toLocaleTimeString()}` }))
-      .catch((e) => setEstimateMsg({ ok: false, text: `Estimate not saved: ${e.message}` }));
-  }, [liveAdmin, cams]);
-  // Twin: the latest saved estimate. ACTIVE while newer than ACTIVE_ESTIMATE_S, otherwise shown dimmed as the last one.
+  // The fire estimate is combined and saved on the SERVER from all laptops' bearings (api/_lib/combine.js).
+  // Map (twin and admin): the latest saved estimate. ACTIVE while newer than ACTIVE_ESTIMATE_S, otherwise dimmed as the last one.
   const estimateActive = !!status.estimate && status.ageS(status.estimate.estimatedAt) < ACTIVE_ESTIMATE_S; // re-checked every second (App ticks)
   const liveStored = useMemo(() => {
-    if (admin || !twin || !status.estimate) return null;
+    if (!twin || !status.estimate) return null;
     return storedToLive(status.estimate, camConfigs, twin.meta.origin_utm, estimateActive);
-  }, [admin, twin, status.estimate, camConfigs, estimateActive]);
-  const live = admin ? liveAdmin : liveStored;
+  }, [twin, status.estimate, camConfigs, estimateActive]);
+  const live = liveStored;
   useEffect(() => { if (admin) savedFolder().then((f) => f && setFolder(f)); }, [admin]);
   const folderRef = useRef(null); folderRef.current = folder;
   // Admin: tell the server every LIVE.heartbeatS which cameras are on air; warn before closing mid-recording.
@@ -324,7 +307,7 @@ export default function App({ admin = false, onLogout }) {
     places: twin && <PlacesPanel labels={twin.labels} current={place.label} onPlace={goPlace} onOverview={overview} autoOrbit={autoOrbit} onOrbit={() => setAutoOrbit((o) => !o)} />,
     detection: (
       <DetectionPanel model={model} onLoadFile={onLoadModelFile} onForget={onForgetModel} detectOn={detectOn}
-        onToggleDetect={() => setDetectOn((d) => !d)} live={liveAdmin} openCount={myCams.length} saveMsg={estimateMsg} />
+        onToggleDetect={() => setDetectOn((d) => !d)} live={liveAdmin} openCount={myCams.length} combined={status.combined} estimate={status.estimate} estimateActive={estimateActive} deviceName={deviceName} />
     ),
     adminBar: <AdminBar onLogout={onLogout} dbError={status.error} deviceName={deviceName} onDeviceName={renameDevice} />,
     recordings: <RecordingsPanel folder={folder} onFolder={setFolder} version={recVersion} />,

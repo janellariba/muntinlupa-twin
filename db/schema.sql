@@ -100,3 +100,12 @@ alter table twin_cameras add column if not exists preview_at   timestamptz;
 -- something on one device: "Laptop A, index 0" and "Laptop B, index 0" are different cameras.
 -- Null = not assigned yet (the admin console asks to assign it before running it).
 alter table twin_cameras add column if not exists device_name text check (device_name is null or length(device_name) between 1 and 40);
+
+-- Latest fire/smoke bearing per camera, sent by the admin laptop every LOGGING.bearingIntervalS while the
+-- camera sees fire/smoke (added 2026-11-28). The server combines bearings from ALL laptops that arrived
+-- within DETECTION.combineWindowS (server clock) and triangulates. History stays in twin_detections.
+alter table twin_cameras add column if not exists last_bearing_deg   double precision;
+alter table twin_cameras add column if not exists last_bearing_at    timestamptz;
+alter table twin_cameras add column if not exists last_bearing_class text;
+alter table twin_cameras add column if not exists last_bearing_conf  real;
+alter table twin_cameras add column if not exists last_bearing_smoke boolean;

@@ -31,6 +31,7 @@ export const api = {
   updateCamera: (id, c) => call("PUT", `/api/cameras?id=${enc(id)}`, c),
   removeCamera: (id) => call("DELETE", `/api/cameras?id=${enc(id)}`),
   saveDetection: (d) => call("POST", "/api/events", { type: "detection", ...d }),
+  saveBearing: (b) => call("POST", "/api/events", { type: "bearing", ...b }),
   saveEstimate: (e) => call("POST", "/api/events", { type: "estimate", ...e }),
   savePreview: (cameraId, jpeg) => call("POST", "/api/events", { type: "preview", cameraId, jpeg }),
   livePublish: (b) => call("POST", "/api/live?action=publish", b),

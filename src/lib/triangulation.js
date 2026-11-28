@@ -7,7 +7,7 @@
 //   A = sum w (I - d d^T),  b = sum w (I - d d^T) p,  x = A^-1 b,  w = 1 / (range * sigma)^2
 // Because w depends on x the solve is repeated. A^-1 is the 2x2 covariance -> 95% ellipse.
 // REJECTED when: fewer than 2 rays, lines nearly parallel, estimate behind a camera, or beyond max range.
-import { latLonToUtm51 } from "./cameras";
+import { latLonToUtm51 } from "./cameras.js";
 
 const CHI2_2DOF_95 = 5.991464547107979; // chi-square, 2 degrees of freedom, 95% (statistics constant)
 const MIN_SIGMA_RAD = 1e-6;             // numerical floor so a zero-noise case does not divide by zero

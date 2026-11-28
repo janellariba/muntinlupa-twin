@@ -167,7 +167,15 @@ Each laptop gets a name in `/admin` ("This device", saved in that browser). A la
 cameras assigned to it and can watch the other laptops' cameras live. The same device cannot have two
 cameras with the same index (checked in the browser and on the server). Cameras created before this
 change show "No device assigned" with an **Assign here** button. Run the updated `db/schema.sql` once.
-Triangulation combines the cameras of one laptop only.
+
+## Triangulation across laptops (server)
+
+While a camera sees fire/smoke, its laptop sends the bearing to `/api/events` (type `bearing`) every
+2 s (`LOGGING.bearingIntervalS`, approved 2026-11-28). The server keeps the latest bearing per camera,
+combines every camera whose bearing arrived in the last `DETECTION.combineWindowS` (server clock, so
+laptop clocks do not matter), runs the same triangulation code (`api/_lib/combine.js` imports
+`src/lib/triangulation.js`) and saves the estimate at most every `LOGGING.estimateIntervalS`.
+Checked: server and browser give the same estimate to 7 decimals. Run the updated `db/schema.sql` once.
 
 ## Backup
 

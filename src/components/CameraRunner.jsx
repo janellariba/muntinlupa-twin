@@ -27,6 +27,7 @@ export default function CameraRunner({ cam, detecting, liveOn, onResult, folderR
   const streamRef = useRef(null);
   const lastDet = useRef(null);       // last detection run { dets, W, H, ms, t }
   const lastSnap = useRef(0);
+  const lastBearing = useRef(0);
   const recRef = useRef(null);
   const [stream, setStream] = useState(null);
   const id = cam.id;
@@ -98,12 +99,23 @@ export default function CameraRunner({ cam, detecting, liveOn, onResult, folderR
           hub.set(id, { det: r, detError: "" });
           onResult?.(id, r);
           saveSnapshot(r);
+          sendBearing(r);
         })
         .catch((e) => alive && hub.set(id, { detError: e.message || String(e) }))
         .finally(() => { busy = false; });
     }, 1000 / DETECTION.runsPerSecond);
     return () => { alive = false; clearInterval(t); onResult?.(id, null); };
   }, [detecting, stream, id, onResult]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Bearing to the server (combined with other laptops' cameras there). Only when heading + FOV are measured.
+  function sendBearing(r) {
+    const box = pickBox(r.dets), c = camRef.current;
+    if (!box || c.heading == null || c.fov == null || Date.now() - lastBearing.current < LOGGING.bearingIntervalS * 1000) return;
+    lastBearing.current = Date.now();
+    api.saveBearing({ cameraId: c.id, bearing: pixelToBearing(box.cx, r.W, c.heading, c.fov), className: box.name, confidence: box.conf, fromSmoke: box.fromSmoke })
+      .then(() => hub.set(id, { bearingErr: "" }))
+      .catch((e) => hub.set(id, { bearingErr: e.message }));
+  }
 
   function saveSnapshot(r) {
     const box = pickBox(r.dets);

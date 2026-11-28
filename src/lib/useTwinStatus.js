@@ -6,7 +6,7 @@ import { api } from "./api";
 import { LOGGING } from "./detectionConfig";
 
 export function useTwinStatus() {
-  const [s, setS] = useState({ loaded: false, cameras: [], latest: {}, estimate: null, error: "" });
+  const [s, setS] = useState({ loaded: false, cameras: [], latest: {}, estimate: null, combined: null, error: "" });
   const offset = useRef(0); // server clock minus this device's clock (ms)
   const busy = useRef(false);
 
@@ -18,7 +18,7 @@ export function useTwinStatus() {
       offset.current = Date.parse(r.serverTime) - Date.now();
       const latest = {};
       for (const d of r.latestDetections) latest[d.cameraId] = d;
-      setS({ loaded: true, cameras: r.cameras, latest, estimate: r.estimate, error: "" });
+      setS({ loaded: true, cameras: r.cameras, latest, estimate: r.estimate, combined: r.combined ?? null, error: "" });
     } catch (e) {
       setS((p) => ({ ...p, loaded: true, error: e.message }));
     } finally { busy.current = false; }

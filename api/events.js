@@ -3,13 +3,17 @@
 //           the latest fire estimate. Anyone can read. The pages call this every few seconds.
 //   POST { type: "detection", ... , jpeg: base64 } -> admin: save a snapshot + its detection
 //   POST { type: "estimate", ... }                  -> admin: save a triangulated fire estimate
+//   POST { type: "bearing", cameraId, bearing, className, confidence, fromSmoke }
+//                                                   -> admin: latest bearing of a camera that sees fire/smoke;
+//                                                      the server combines all laptops' bearings and triangulates
 //   POST { type: "preview", cameraId, jpeg }        -> admin: the once-a-minute picture for public viewers
 //                                                      (one file per camera, overwritten each time)
 import crypto from "node:crypto";
 import { handler, readJson, send, HttpError } from "./_lib/http.js";
-import { requireAdmin } from "./_lib/auth.js";
+import { requireAdmin, isAdmin } from "./_lib/auth.js";
 import { q } from "./_lib/db.js";
 import { uploadJpeg, signedUrls } from "./_lib/storage.js";
+import { freshBearings, solve, combineAndSave } from "./_lib/combine.js";
 
 const finite = (v) => (v === null || v === undefined ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 
@@ -46,6 +50,18 @@ async function savePreview(b) {
   return { ok: true };
 }
 
+async function saveBearing(b) {
+  const bearing = Number(b.bearing), conf = Number(b.confidence);
+  if (!(bearing >= 0 && bearing < 360)) throw new HttpError(400, "Bearing must be from 0 to less than 360.");
+  const { rowCount } = await q(
+    `update twin_cameras set last_bearing_deg=$2, last_bearing_at=now(), last_bearing_class=$3, last_bearing_conf=$4, last_bearing_smoke=$5
+      where id=$1 and heading_deg is not null and fov_deg is not null`,
+    [b.cameraId, bearing, String(b.className ?? "").slice(0, 40), Number.isFinite(conf) ? conf : null, Boolean(b.fromSmoke)]);
+  if (!rowCount) throw new HttpError(404, "Camera not found or its heading/field of view is not measured.");
+  const c = await combineAndSave();
+  return { status: c.status, reason: c.reason, nRays: c.nRays, saved: c.saved };
+}
+
 async function saveEstimate(b) {
   const lat = finite(b.lat), lon = finite(b.lon);
   if (lat === null || lon === null || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new HttpError(400, "Estimate needs a valid lat/lon.");
@@ -68,6 +84,16 @@ export default handler({
     ]);
     const urls = await signedUrls([...latest.rows.map((r) => r.snapshot_path), ...cams.rows.map((r) => r.preview_path)]);
     const e = est.rows[0];
+    // Admin only: the bearings being combined right now (all laptops) and the live result.
+    let combined = null;
+    if (isAdmin(req)) {
+      const rows = await freshBearings(), c = solve(rows);
+      combined = {
+        status: c.status, reason: c.reason, nRays: c.nRays, maxRayAngleDeg: c.maxRayAngleDeg, residualRmsDeg: c.residualRmsDeg, estimate: c.estimate ?? null,
+        bearings: rows.map((r) => ({ cameraId: r.id, name: r.name, device: r.device_name, bearing: r.last_bearing_deg, className: r.last_bearing_class,
+          confidence: r.last_bearing_conf, fromSmoke: r.last_bearing_smoke, ageS: Number(r.age_s) })),
+      };
+    }
     send(res, 200, {
       serverTime: new Date().toISOString(),
       cameras: cams.rows.map((r) => ({
@@ -78,6 +104,7 @@ export default handler({
         cameraId: r.camera_id, className: r.class_name, confidence: r.confidence, bearing: r.bearing_deg, fromSmoke: r.from_smoke,
         detectedAt: r.detected_at, snapshotUrl: urls[r.snapshot_path] ?? null,
       })),
+      combined,
       estimate: e ? {
         id: e.id, lat: e.lat, lon: e.lon, ellipse: { major: e.ellipse_major_m, minor: e.ellipse_minor_m, orientDeg: e.ellipse_orient_deg },
         nRays: e.n_rays, maxRayAngleDeg: e.max_ray_angle_deg, residualRmsDeg: e.residual_rms_deg, usesSmoke: e.uses_smoke,
@@ -91,6 +118,7 @@ export default handler({
     if (b.type === "detection") return send(res, 201, await saveDetection(b));
     if (b.type === "estimate") return send(res, 201, await saveEstimate(b));
     if (b.type === "preview") return send(res, 201, await savePreview(b));
+    if (b.type === "bearing") return send(res, 201, await saveBearing(b));
     throw new HttpError(400, 'type must be "detection" or "estimate".');
   },
 });
