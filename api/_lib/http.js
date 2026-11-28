@@ -42,7 +42,22 @@ export function handler(methods) {
       if (e?.code === "23505") return send(res, 409, { error: "That name is already used by another camera." }); // unique violation
       if (e?.code === "23514") return send(res, 400, { error: "A value is out of range." });                     // check violation
       console.error(e);
-      send(res, 500, { error: "Server error. Check the Vercel function logs." });
+      send(res, 500, { error: explain(e) });
     }
   };
+}
+
+/** A readable cause for common setup problems. Never includes passwords, keys or the connection string. */
+export function explain(e) {
+  const code = e?.code, msg = String(e?.message || "");
+  if (code === "42P01" || code === "3F000") return "Database tables are missing: run db/schema.sql in the Supabase SQL Editor.";
+  if (code === "28P01" || code === "28000" || /password authentication failed/i.test(msg)) return "Database password is wrong: check the password inside DATABASE_URL (no [ ] brackets).";
+  if (/tenant or user not found/i.test(msg)) return "DATABASE_URL user or host is wrong: copy the Shared pooler string from Supabase Connect again.";
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN") return "DATABASE_URL host not found: copy the Shared pooler string from Supabase Connect again.";
+  if (code === "ECONNREFUSED" || code === "ETIMEDOUT" || /timeout/i.test(msg)) return "Cannot reach the database: use the Shared pooler string (port 6543), and check the Supabase project is not paused.";
+  if (/certificate|SSL|TLS/i.test(msg)) return "Database TLS error: remove any ?sslmode=... from the end of DATABASE_URL.";
+  if (e instanceof URIError || /invalid url|uri malformed|invalid connection/i.test(msg) || code === "ERR_INVALID_URL")
+    return "DATABASE_URL is not a valid address: a password with symbols (@ # / ? : %) breaks it. Reset the database password to letters and numbers only.";
+  if (code === "42501") return "Database permission denied: DATABASE_URL must use the postgres user from the Shared pooler string.";
+  return `Server error${code ? ` (code ${code})` : ""}. Open /api/health for a setup check.`;
 }
