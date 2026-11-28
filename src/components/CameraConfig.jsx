@@ -7,12 +7,14 @@ import { H2 } from "./Panels";
 import { MAX_INDEX } from "../lib/cameraConfig";
 import { listCameras } from "../lib/webcam";
 
-const EMPTY = { name: "", lat: "", lon: "", index: "", heading: "", fov: "" };
+const EMPTY = { name: "", lat: "", lon: "", index: "", heading: "", fov: "", device: "" };
 const field = "mt-1 w-full rounded-md border border-line bg-[#0f191d] px-2.5 py-1.5 text-sm text-ink placeholder:text-muted/60 focus:border-accent focus:outline-none";
 
-export default function CameraConfig({ cameras, onSave, onRemove, onShow, validate, openIds = [], onOpenAll, onCloseAll, liveOff = [], onSetLive }) {
-  const allIds = cameras.map((c) => c.id), anyOn = allIds.some((x) => !liveOff.includes(x)), anyOff = allIds.some((x) => liveOff.includes(x));
+export default function CameraConfig({ cameras, onSave, onRemove, onShow, validate, openIds = [], onOpenAll, onCloseAll, liveOff = [], onSetLive, deviceName = "", localIds = [], onAssignHere }) {
+  const allIds = localIds, anyOn = allIds.some((x) => !liveOff.includes(x)), anyOff = allIds.some((x) => liveOff.includes(x));
   const [form, setForm] = useState(EMPTY);
+  const devices = [...new Set([deviceName, ...cameras.map((c) => c.device)].filter(Boolean))];
+  const [assignErr, setAssignErr] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState("");
   const [detected, setDetected] = useState(null); // null = not checked yet
@@ -23,7 +25,7 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
   const [busy, setBusy] = useState(false);
   const submit = async (e) => {
     e.preventDefault();
-    const res = validate(form, editingId);
+    const res = validate({ ...form, device: form.device || deviceName }, editingId);
     if (res.error) { setError(res.error); return; }
     setBusy(true);
     try {
@@ -39,7 +41,7 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
 
   const edit = (c) => {
     setEditingId(c.id);
-    setForm({ name: c.name, lat: String(c.lat), lon: String(c.lon), index: String(c.index), heading: c.heading ?? "", fov: c.fov ?? "" });
+    setForm({ name: c.name, lat: String(c.lat), lon: String(c.lon), index: String(c.index), heading: c.heading ?? "", fov: c.fov ?? "", device: c.device ?? "" });
     setError("");
   };
 
@@ -74,6 +76,12 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
             <input id="cam-lon" className={field} value={form.lon} onChange={set("lon")} inputMode="decimal" placeholder="121.xxxxxx" />
           </label>
         </div>
+        <label className="block text-xs text-muted" htmlFor="cam-device">
+          Device <span className="opacity-70">(the laptop this webcam is plugged into)</span>
+          <input id="cam-device" className={field} value={form.device} onChange={set("device")} list="cam-device-list" maxLength={40}
+            placeholder={deviceName ? `${deviceName} (this device)` : "Name this device at the top first"} />
+          <datalist id="cam-device-list">{devices.map((d) => <option key={d} value={d} />)}</datalist>
+        </label>
         <div className="grid grid-cols-[1fr_auto] items-end gap-2">
           <label className="block text-xs text-muted" htmlFor="cam-index">
             Camera index
@@ -137,11 +145,16 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
               <li key={c.id} className="rounded-md border border-line p-2 text-xs">
                 <div className="flex items-baseline justify-between gap-2">
                   <b className="truncate text-sm">{c.name}</b>
-                  <span className="shrink-0 font-mono text-muted">index {c.index}{" "}
-                    <span className={`ml-1 rounded px-1 text-[0.6rem] ${liveOff.includes(c.id) ? "border border-line" : "bg-red-600/90 text-white"}`}>{liveOff.includes(c.id) ? "STOPPED" : "ON"}</span>
+                  <span className="shrink-0 font-mono text-muted">index {c.index}{localIds.includes(c.id) && <>{" "}
+                    <span className={`ml-1 rounded px-1 text-[0.6rem] ${liveOff.includes(c.id) ? "border border-line" : "bg-red-600/90 text-white"}`}>{liveOff.includes(c.id) ? "STOPPED" : "ON"}</span></>}
                   </span>
                 </div>
                 <div className="mt-0.5 font-mono text-muted tabular-nums">{c.lat.toFixed(6)}, {c.lon.toFixed(6)}{c.barangay ? ` · ${c.barangay}` : ""}</div>
+                <div className="mt-0.5 text-muted">
+                  {!c.device ? <span className="text-[#f2a0a0]">No device assigned: not running anywhere.</span>
+                    : localIds.includes(c.id) ? <>On <b className="text-ink">{c.device}</b> (this device)</>
+                    : <>On <b className="text-ink">{c.device}</b>: runs there, watch it live here</>}
+                </div>
                 <div className="mt-0.5 font-mono tabular-nums">
                   {c.heading != null && c.fov != null
                     ? <span className="text-muted">heading {c.heading}° · FOV {c.fov}°</span>
@@ -149,7 +162,10 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
                 </div>
                 <div className="mt-1.5 flex gap-1.5">
                   <button type="button" className="chip flex-1 py-1" aria-pressed={openIds.includes(c.id)} onClick={() => onShow(c)}>Show</button>
-                  {onSetLive && (
+                  {!c.device && onAssignHere && deviceName && (
+                    <button type="button" className="chip flex-1 py-1" onClick={() => { setAssignErr(""); onAssignHere(c).catch((e) => setAssignErr(e.message)); }}>Assign here</button>
+                  )}
+                  {onSetLive && localIds.includes(c.id) && (
                     <button type="button" className="chip flex-1 py-1" onClick={() => onSetLive([c.id], liveOff.includes(c.id))}>
                       {liveOff.includes(c.id) ? "Start" : "Stop"}
                     </button>
@@ -162,8 +178,9 @@ export default function CameraConfig({ cameras, onSave, onRemove, onShow, valida
           </ul>
           </>
         )}
+        {assignErr && <p role="alert" className="mt-1.5 text-xs text-[#f2a0a0]">{assignErr}</p>}
         <p className="mt-2 text-[0.7rem] leading-snug text-muted">
-          Saved in the database: the twin page on any device shows these cameras. While this console is open, each camera's webcam (that index on this laptop) streams live, detects and sends a picture every minute, even with its popup closed. Stop turns a camera fully off.
+          Saved in the database: the twin page on any device shows these cameras. While this console is open, each camera assigned to this device (its index on this laptop) streams live, detects and sends a picture every minute, even with its popup closed. Stop turns a camera fully off.
         </p>
       </div>
     </div>

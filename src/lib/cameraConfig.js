@@ -56,10 +56,14 @@ export function validateCamera(form, twin, existing, editingId) {
   const heading = opt(form.heading), fov = opt(form.fov);
   if (heading !== null && (!Number.isFinite(heading) || heading < 0 || heading >= 360)) return { error: "Heading must be a compass bearing from 0 to less than 360 (0 = north, 90 = east), or empty if not measured." };
   if (fov !== null && (!Number.isFinite(fov) || fov <= 0 || fov > 180)) return { error: "Field of view must be more than 0 and at most 180 degrees, or empty if not measured." };
+  const device = String(form.device || "").trim().slice(0, 40) || null;
+  if (!device) return { error: "Device is required: the laptop this webcam is plugged into (set \"This device\" at the top)." };
+  const clash = existing.find((c) => c.id !== editingId && c.index === index && (c.device || "").toLowerCase() === device.toLowerCase());
+  if (clash) return { error: `${device} already has a camera at index ${index} ("${clash.name}"). Use another index or another device.` };
   const placed = placeCamera({ lat, lon }, twin);
   if (!placed.barangay) return { error: "That point is outside Muntinlupa. Muntinlupa is around 14.36 to 14.45 N, 121.01 to 121.06 E." };
   if (existing.some((c) => c.id !== editingId && c.name.toLowerCase() === name.toLowerCase())) return { error: `There is already a camera named "${name}".` };
-  return { cam: { id: editingId || `cam-${Date.now().toString(36)}`, name, lat, lon, index, heading, fov } };
+  return { cam: { id: editingId || `cam-${Date.now().toString(36)}`, name, lat, lon, index, heading, fov, device } };
 }
 
 /* Cameras turned off with "Stop camera" on this admin laptop (webcam, live, detection, pictures off).

@@ -24,6 +24,7 @@ import { api } from "./lib/api";
 import { LOGGING, ACTIVE_ESTIMATE_S, LIVE } from "./lib/detectionConfig";
 import CameraRunner from "./components/CameraRunner";
 import { hub, useHubVersion } from "./lib/cameraHub";
+import { loadDeviceName, saveDeviceName, sameDevice } from "./lib/device";
 
 // Twin page: a camera counts as "detecting now" while its latest saved snapshot is newer than
 // 2 x snapshotIntervalS (snapshots are saved every snapshotIntervalS while it sees fire/smoke).
@@ -73,6 +74,8 @@ export default function App({ admin = false, onLogout }) {
   const [localCams, setLocalCams] = useState(() => (admin ? loadCameras() : []));
   const [folder, setFolder] = useState(null);                  // admin: recordings folder on this laptop
   const [recVersion, setRecVersion] = useState(0);
+  const [deviceName, setDeviceName] = useState(() => (admin ? loadDeviceName() : "")); // this admin laptop's name
+  const renameDevice = (n) => { saveDeviceName(n); setDeviceName(n); };
   const [liveOff, setLiveOff] = useState(() => (admin ? loadLiveOff() : [])); // camera ids with live stopped
   const setLive = useCallback((ids, on) => setLiveOff((prev) => {
     const next = on ? prev.filter((x) => !ids.includes(x)) : [...new Set([...prev, ...ids])];
@@ -184,7 +187,12 @@ export default function App({ admin = false, onLogout }) {
     return { ...placeCamera(c, twin), lastDet: d ?? null, lastDetAgeS: age, detectingNow: detectingKey.split(",").includes(c.id),
       live: liveKey.split(",").includes(c.id), previewAgeS: status.ageS(c.previewAt) };
   }) : []), [twin, camConfigs, status.latest, status.ageS, detectingKey, liveKey]);
-  const fields = ({ name, lat, lon, index, heading, fov }) => ({ name, lat, lon, index, heading, fov });
+  const fields = ({ name, lat, lon, index, heading, fov, device }) => ({ name, lat, lon, index, heading, fov, device });
+  // Admin: cameras plugged into THIS device run here; the others are only watched (live video).
+  const localIds = useMemo(() => cams.filter((c) => sameDevice(c.device, deviceName)).map((c) => c.id), [cams, deviceName]);
+  const localKey = localIds.join(",");
+  const myCams = useMemo(() => cams.filter((c) => localIds.includes(c.id)), [localKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const assignHere = async (c) => { await api.updateCamera(c.id, { ...fields(c), device: deviceName }); await status.refresh(); };
   const saveCam = async (cam, editingId) => {
     if (editingId) await api.updateCamera(editingId, fields(cam)); else await api.addCamera(fields(cam));
     await status.refresh();
@@ -198,7 +206,7 @@ export default function App({ admin = false, onLogout }) {
   const importLocal = async () => {
     const failed = [];
     for (const c of localCams) {
-      try { await api.addCamera(fields(c)); }
+      try { await api.addCamera({ ...fields(c), device: deviceName }); }
       catch (e) { if (e.status !== 409) failed.push(`${c.name}: ${e.message}`); } // 409 = already in the database
     }
     await status.refresh();
@@ -244,8 +252,8 @@ export default function App({ admin = false, onLogout }) {
   useEffect(() => { if (!detecting) setHits({}); }, [detecting]);
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   const liveAdmin = useMemo(
-    () => (twin && detecting ? liveTriangulation(cams, hits, now, twin.meta.origin_utm) : null),
-    [twin, detecting, cams, hits, now]
+    () => (twin && detecting ? liveTriangulation(myCams, hits, now, twin.meta.origin_utm) : null),
+    [twin, detecting, myCams, hits, now]
   );
   // Admin: save the estimate when it first appears, then at most every LOGGING.estimateIntervalS.
   const lastEstimateSave = useRef(0);
@@ -304,7 +312,7 @@ export default function App({ admin = false, onLogout }) {
     lock: async () => { await api.logout("viewer").catch(() => {}); api.session().then((r) => setViewerOk(!!r.viewer)).catch(() => setViewerOk(false)); },
   }), [viewerOk]);
   const onRecorded = useCallback(() => setRecVersion((v) => v + 1), []);
-  const adminTools = useMemo(() => (admin ? { folder, onRecorded, liveOff, setLive } : null), [admin, folder, onRecorded, liveOff, setLive]);
+  const adminTools = useMemo(() => (admin ? { folder, onRecorded, liveOff, setLive, localKey } : null), [admin, folder, onRecorded, liveOff, setLive, localKey]);
   useEffect(() => { if (!visible.cameras) setOpenCamIds([]); }, [visible.cameras]);
 
   const toggle = (k) => setVisible((v) => ({ ...v, [k]: !v[k] }));
@@ -316,14 +324,15 @@ export default function App({ admin = false, onLogout }) {
     places: twin && <PlacesPanel labels={twin.labels} current={place.label} onPlace={goPlace} onOverview={overview} autoOrbit={autoOrbit} onOrbit={() => setAutoOrbit((o) => !o)} />,
     detection: (
       <DetectionPanel model={model} onLoadFile={onLoadModelFile} onForget={onForgetModel} detectOn={detectOn}
-        onToggleDetect={() => setDetectOn((d) => !d)} live={liveAdmin} openCount={cams.length} saveMsg={estimateMsg} />
+        onToggleDetect={() => setDetectOn((d) => !d)} live={liveAdmin} openCount={myCams.length} saveMsg={estimateMsg} />
     ),
-    adminBar: <AdminBar onLogout={onLogout} dbError={status.error} />,
+    adminBar: <AdminBar onLogout={onLogout} dbError={status.error} deviceName={deviceName} onDeviceName={renameDevice} />,
     recordings: <RecordingsPanel folder={folder} onFolder={setFolder} version={recVersion} />,
     cameras: twin && (admin ? (
       <div className="grid gap-2">
         <ImportCard local={localCams} onImport={importLocal} />
         <CameraConfig cameras={cams} onSave={saveCam} onRemove={removeCam} onShow={showCam} liveOff={liveOff} onSetLive={setLive}
+          deviceName={deviceName} localIds={localIds} onAssignHere={assignHere}
           openIds={openCamIds} onOpenAll={openAllCams} onCloseAll={closeAllCams}
           validate={(form, editingId) => validateCamera(form, twin, camConfigs, editingId)} />
       </div>
@@ -361,8 +370,8 @@ export default function App({ admin = false, onLogout }) {
       />
 
       {/* Admin: every camera runs in the background (stream, live, detection, previews, recording). */}
-      {admin && twin && cams.map((c) => (
-        <CameraRunner key={c.id} cam={c} detecting={detecting} liveOn={!liveOff.includes(c.id)} onResult={onDetResult} folderRef={folderRef} onRecorded={onRecorded} />
+      {admin && twin && myCams.map((c) => (
+        <CameraRunner key={c.id} cam={cams.find((k) => k.id === c.id) ?? c} detecting={detecting} liveOn={!liveOff.includes(c.id)} onResult={onDetResult} folderRef={folderRef} onRecorded={onRecorded} />
       ))}
 
       {/* Loading / error overlay */}

@@ -160,6 +160,15 @@ Values (`src/lib/detectionConfig.js` LIVE): preview every 60 s (approved); TEMPO
 heartbeat 15 s, offline after 45 s without one, 1500 kbps cap per camera (about 0.7 GB per viewer-hour;
 Cloudflare's free tier is 1,000 GB/month of viewing). Viewer login lasts 12 h like the admin login.
 
+## Several admin laptops (devices)
+
+A webcam index only means something on one laptop, so every camera is assigned to a **device**.
+Each laptop gets a name in `/admin` ("This device", saved in that browser). A laptop runs only the
+cameras assigned to it and can watch the other laptops' cameras live. The same device cannot have two
+cameras with the same index (checked in the browser and on the server). Cameras created before this
+change show "No device assigned" with an **Assign here** button. Run the updated `db/schema.sql` once.
+Triangulation combines the cameras of one laptop only.
+
 ## Backup
 
 The version before Camera config is kept on the branch **`backup/before-camera-config`**

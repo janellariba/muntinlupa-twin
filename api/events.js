@@ -61,7 +61,7 @@ async function saveEstimate(b) {
 export default handler({
   GET: async (req, res) => {
     const [cams, latest, est] = await Promise.all([
-      q("select id, name, lat, lon, cam_index, heading_deg, fov_deg, live_at, preview_path, preview_at from twin_cameras order by created_at"),
+      q("select id, name, lat, lon, cam_index, heading_deg, fov_deg, device_name, live_at, preview_path, preview_at from twin_cameras order by created_at"),
       q(`select distinct on (camera_id) id, camera_id, class_name, confidence, bearing_deg, from_smoke, snapshot_path, detected_at
          from twin_detections where camera_id is not null order by camera_id, detected_at desc`),
       q("select * from twin_fire_estimates order by estimated_at desc limit 1"),
@@ -71,7 +71,7 @@ export default handler({
     send(res, 200, {
       serverTime: new Date().toISOString(),
       cameras: cams.rows.map((r) => ({
-        id: r.id, name: r.name, lat: r.lat, lon: r.lon, index: r.cam_index, heading: r.heading_deg, fov: r.fov_deg,
+        id: r.id, name: r.name, lat: r.lat, lon: r.lon, index: r.cam_index, heading: r.heading_deg, fov: r.fov_deg, device: r.device_name,
         liveAt: r.live_at, previewUrl: urls[r.preview_path] ?? null, previewAt: r.preview_at,
       })),
       latestDetections: latest.rows.map((r) => ({

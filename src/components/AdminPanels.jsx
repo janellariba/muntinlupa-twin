@@ -45,7 +45,33 @@ export function AdminGate({ children }) {
   );
 }
 
-export function AdminBar({ onLogout, dbError }) {
+function DeviceName({ name, onSave }) {
+  const [edit, setEdit] = useState(!name);
+  const [v, setV] = useState(name);
+  useEffect(() => { setV(name); setEdit(!name); }, [name]);
+  if (!edit) return (
+    <div className="mt-2 flex items-center justify-between gap-2 text-xs">
+      <span className="min-w-0 truncate text-muted">This device: <b className="text-ink">{name}</b></span>
+      <button className="chip shrink-0 py-1" onClick={() => setEdit(true)}>Rename</button>
+    </div>
+  );
+  const submit = (e) => { e.preventDefault(); const n = v.trim().slice(0, 40); if (n) { onSave(n); setEdit(false); } };
+  return (
+    <form onSubmit={submit} className={`mt-2 rounded-md border p-2 text-xs ${name ? "border-line" : "border-accent"}`}>
+      <label htmlFor="device-name" className="text-muted">
+        {name ? "Rename this device" : "Name this device first (the laptop the webcams are plugged into)."}
+      </label>
+      <div className="mt-1 flex gap-1.5">
+        <input id="device-name" value={v} onChange={(e) => setV(e.target.value)} maxLength={40} placeholder="e.g. Laptop A, CDM Room 301"
+          className="min-w-0 flex-1 rounded-md border border-line bg-[#0f191d] px-2 py-1 text-ink focus:border-accent focus:outline-none" />
+        <button className="chip shrink-0 py-1" disabled={!v.trim()}>Save</button>
+      </div>
+      <p className="mt-1 text-[0.68rem] text-muted">Each camera is assigned to a device, so "index 0" on two laptops are two different cameras. Use a different name on each laptop.</p>
+    </form>
+  );
+}
+
+export function AdminBar({ onLogout, dbError, deviceName, onDeviceName }) {
   return (
     <div>
       <div className="flex items-center justify-between gap-2">
@@ -56,6 +82,7 @@ export function AdminBar({ onLogout, dbError }) {
         </span>
       </div>
       {dbError && <p role="alert" className="mt-2 text-xs text-[#f2a0a0]">Database: {dbError}</p>}
+      <DeviceName name={deviceName} onSave={onDeviceName} />
     </div>
   );
 }

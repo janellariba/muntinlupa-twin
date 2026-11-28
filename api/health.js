@@ -13,7 +13,7 @@ export default async function health(req, res) {
     const { rows } = await q("select table_name from information_schema.tables where table_schema='public' and table_name like 'twin_%'");
     const need = ["twin_cameras", "twin_detections", "twin_fire_estimates", "twin_recordings"];
     const missing = need.filter((t) => !rows.some((r) => r.table_name === t));
-    const cols = (await q("select 1 from information_schema.columns where table_name='twin_cameras' and column_name='preview_at'")).rowCount;
+    const cols = (await q("select 1 from information_schema.columns where table_name='twin_cameras' and column_name='device_name'")).rowCount;
     out.tables = missing.length ? `MISSING ${missing.join(", ")}: run db/schema.sql in the Supabase SQL Editor`
       : !cols ? "OLD: run the updated db/schema.sql again (live video columns)" : "OK";
   } catch (e) { out.database = `FAILED: ${explain(e)}`; }
